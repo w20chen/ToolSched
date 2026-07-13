@@ -55,6 +55,45 @@ python -m toolsched.cli simulate-placement --samples artifacts\samples.jsonl --m
 python -m toolsched.cli speculate --samples artifacts\samples.jsonl --out artifacts\speculation.json
 ```
 
+### Real Linux placement dataset
+
+The collector runs approved repository workloads on concrete Linux CPUs,
+randomizes action order, creates controlled SMT/LLC co-runner interference,
+records pre-launch state and raw repetitions, aggregates counterfactual costs,
+and can evaluate the result in the same command.
+
+```bash
+# 5 real workload families x 4 independent case shards = 20 invocations
+python -m toolsched.cli prepare-placement-study \
+  --samples artifacts/agent_non_bfcl.samples.jsonl \
+  --out artifacts/placement.study.manifest.json \
+  --shards 4
+
+python -m toolsched.cli collect-placement \
+  --manifest artifacts/placement.study.manifest.json \
+  --raw-out artifacts/placement.real.raw.jsonl \
+  --samples-out artifacts/placement.real.samples.jsonl \
+  --metrics-out artifacts/placement.real.metrics.json \
+  --summary-out artifacts/placement.real.collection.json \
+  --repeats 7 \
+  --max-candidates 4 \
+  --max-corunners 2 \
+  --perf-mode required \
+  --execute-approved-manifest
+```
+
+This command is Linux-only and executes every approved manifest command many
+times. Inspect the manifest first. `--perf-mode required` is the publication
+setting when kernel perf permissions are available; `auto` records whether
+each pressure value came from hardware counters or the controlled-load proxy.
+Raw JSONL is the primary dataset and is flushed after every replay, so an
+interrupted study can be recovered with `aggregate-placement`.
+The collection summary reports explicit minimum design gates (at least 20
+independent invocations, 5 repeats, 3 candidates, 2 scenarios, low failure
+rate, hardware perf availability, and aggregatable counterfactual samples).
+Passing them is a minimum engineering check, not a substitute for replication
+on held-out machines.
+
 For a smaller first pass:
 
 ```powershell

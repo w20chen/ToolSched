@@ -103,6 +103,88 @@ controlled replay data.
 
 Real and synthetic evidence are never aggregated.
 
+## End-to-end Linux collector
+
+`prepare-placement-study` partitions cases by a stable hash and constructs five
+real ToolSched workload families per shard: latency logistic regression,
+latency random forest, next-tool logistic regression, remaining-time random
+forest, and grouped quantile fitting. These are actual repository computations;
+only the co-runners are controlled stressors.
+
+For each invocation \(i\), interference scenario \(s\), candidate CPU \(c\),
+and repeat \(r\), the collector records a raw row
+
+\[
+Z_{i,s,c,r}=(x_i,s_{pre},c,L_{tool},T_{peer},exit,status).
+\]
+
+Candidate order is randomly permuted inside every repeat. `cluster_a_busy` and
+`cluster_b_busy` refer to two fixed LLC domains, not to a candidate-relative
+oracle label; whether a candidate shares the busy cluster is visible in its
+measured state. Co-runner placement
+is fixed for the whole `(invocation, scenario)` replay block, so all candidate
+actions are compared against the same interference intervention. Candidate
+state is sampled before tool launch while co-runners are active.
+
+Linux affinity is applied with `sched_setaffinity` to the shell process and is
+inherited by children. Common hidden thread pools are constrained through
+`OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS`,
+`NUMEXPR_NUM_THREADS`, and `LOKY_MAX_CPU_COUNT` in the study manifest.
+
+CPU utilization comes from a `/proc/stat` delta. Current/reference frequency
+comes from cpufreq sysfs. In `--perf-mode auto|required`, the collector tries
+per-LLC-domain `perf stat` measurements and defines the portable proxies
+
+\[
+p_{cache}=\frac{cache\ misses}{cache\ references},\qquad
+p_{memory\ stall}=\frac{backend\ stalled\ cycles}{cycles}.
+\]
+
+Generic perf events are not guaranteed to be literal last-level-cache misses or
+memory-bandwidth bytes on every microarchitecture; raw provenance therefore
+calls them pressure proxies. A machine-specific paper can replace them with
+validated uncore/IMC events. If `auto` cannot access perf counters, it records a controlled co-runner proxy
+and marks the provenance on every candidate. `required` aborts instead; it is
+the stronger setting for publishable hardware claims.
+
+Peer interference is estimated from a short solo-throughput calibration and
+the concurrent co-runner throughput:
+
+\[
+\Delta L_{peer}
+=W\max\left(0,
+\frac{Throughput_{solo}}{Throughput_{concurrent}}-1
+\right),
+\]
+
+where \(W\) is the tool overlap window. Multiple co-runners contribute
+additively. The experiment retains both rates, so alternative interference
+objectives can be recomputed from raw data.
+
+Aggregation requires at least `min_success_per_candidate` successful repeats
+for every action. It uses medians:
+
+\[
+\widetilde L_{i,s,c}=median_r L_{i,s,c,r},\qquad
+\widetilde I_{i,s,c}=median_r\Delta L_{peer,i,s,c,r}.
+\]
+
+The normalized evaluator row then contains
+
+\[
+C_{i,s}(c)=\widetilde L_{i,s,c}+0.20\widetilde I_{i,s,c}.
+\]
+
+The raw long table, not the aggregated sample, is the primary scientific
+artifact. Repeats must remain grouped by invocation/case during splitting and
+bootstrap analysis.
+
+The collector reports minimum design gates: at least 20 independent
+invocations, 5 repeats, 3 candidate cores, 2 supported interference scenarios,
+failure rate at most 10%, hardware perf pressure availability, and at least one
+complete counterfactual aggregate. These gates catch toy or broken executions;
+passing them does not establish cross-machine external validity.
+
 ### Real counterfactual replay
 
 For the same invocation and comparable initial state, run each allowed action

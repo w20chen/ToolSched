@@ -27,6 +27,12 @@ from .models.remaining import (
     StepsDecomposedRemaining,
 )
 from .scheduler.placement import placement_metrics
+from .scheduler.placement_collect import aggregate_placement_rows, collect_placement_study
+from .scheduler.placement_manifest import (
+    build_replay_manifest,
+    build_toolsched_study_manifest,
+    parse_path_maps,
+)
 from .scheduler.speculation import speculation_metrics
 
 
@@ -72,6 +78,55 @@ def main() -> None:
     )
     p.add_argument("--synthetic-clusters", type=int, default=2)
     p.add_argument("--synthetic-cores-per-cluster", type=int, default=2)
+
+    p = sub.add_parser("prepare-placement-manifest")
+    p.add_argument("--samples", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--path-map", action="append", help="rewrite trace paths as OLD=NEW")
+    p.add_argument("--max-entries", type=int, default=50)
+    p.add_argument("--min-observed-duration-ms", type=float, default=50.0)
+    p.add_argument(
+        "--approve-safe-read-only",
+        action="store_true",
+        help="approve only commands accepted by the strict read-only allowlist",
+    )
+
+    p = sub.add_parser("collect-placement")
+    p.add_argument("--manifest", required=True)
+    p.add_argument("--raw-out", required=True)
+    p.add_argument("--samples-out", required=True)
+    p.add_argument("--metrics-out")
+    p.add_argument("--summary-out")
+    p.add_argument("--repeats", type=int, default=7)
+    p.add_argument("--max-candidates", type=int, default=4)
+    p.add_argument("--max-corunners", type=int, default=2)
+    p.add_argument(
+        "--scenario",
+        action="append",
+        choices=("idle", "smt_busy", "cluster_a_busy", "cluster_b_busy"),
+    )
+    p.add_argument("--warmup-seconds", type=float, default=0.20)
+    p.add_argument("--utilization-window-seconds", type=float, default=0.15)
+    p.add_argument("--peer-baseline-seconds", type=float, default=1.0)
+    p.add_argument("--perf-mode", choices=("auto", "required", "off"), default="auto")
+    p.add_argument("--seed", type=int, default=7)
+    p.add_argument("--min-success-per-candidate", type=int, default=3)
+    p.add_argument(
+        "--execute-approved-manifest",
+        action="store_true",
+        help="required acknowledgement that approved manifest commands will execute",
+    )
+
+    p = sub.add_parser("prepare-placement-study")
+    p.add_argument("--samples", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--cwd", default=".")
+    p.add_argument("--shards", type=int, default=4)
+
+    p = sub.add_parser("aggregate-placement")
+    p.add_argument("--raw", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--min-success-per-candidate", type=int, default=3)
 
     p = sub.add_parser("speculate")
     p.add_argument("--samples", required=True)
@@ -136,6 +191,77 @@ def main() -> None:
             synthetic_cores_per_cluster=args.synthetic_cores_per_cluster,
         )
         emit(payload, args.out)
+    elif args.cmd == "prepare-placement-manifest":
+        samples = read_samples(Path(args.samples))
+        payload = build_replay_manifest(
+            samples,
+            path_maps=parse_path_maps(args.path_map),
+            max_entries=args.max_entries,
+            min_observed_duration_ms=args.min_observed_duration_ms,
+            approve_safe_read_only=args.approve_safe_read_only,
+        )
+        write_json(Path(args.out), payload)
+        print_json({
+            "out": args.out,
+            "entries": len(payload["entries"]),
+            "approved": sum(entry.get("approved") is True for entry in payload["entries"]),
+            "selection": payload["selection"],
+        })
+    elif args.cmd == "collect-placement":
+        if not args.execute_approved_manifest:
+            parser.error("collect-placement requires --execute-approved-manifest")
+        payload = collect_placement_study(
+            manifest_path=Path(args.manifest),
+            raw_out=Path(args.raw_out),
+            samples_out=Path(args.samples_out),
+            repeats=args.repeats,
+            max_candidates=args.max_candidates,
+            max_corunners=args.max_corunners,
+            scenarios_requested=tuple(args.scenario or (
+                "idle", "smt_busy", "cluster_a_busy", "cluster_b_busy"
+            )),
+            warmup_seconds=args.warmup_seconds,
+            utilization_window_seconds=args.utilization_window_seconds,
+            peer_baseline_seconds=args.peer_baseline_seconds,
+            perf_mode=args.perf_mode,
+            seed=args.seed,
+            min_success_per_candidate=args.min_success_per_candidate,
+        )
+        if args.metrics_out:
+            collected = read_samples(Path(args.samples_out))
+            if collected:
+                train, test = split_by_case(collected)
+                # With a tiny pilot, case holdout can leave too little evidence.
+                # Keep the split for model fitting but report which rows were evaluated.
+                fit_rows = train or collected
+                eval_rows = test or collected
+                model = GroupQuantileModel(("operation", "resource_class")).fit(fit_rows)
+                metrics = placement_metrics(eval_rows, model.predict, mode="real")
+            else:
+                metrics = {"error": "collector produced no aggregatable placement samples"}
+            write_json(Path(args.metrics_out), metrics)
+            payload["metrics_out"] = args.metrics_out
+            payload["metrics"] = metrics
+        if args.summary_out:
+            payload["summary_out"] = args.summary_out
+            write_json(Path(args.summary_out), payload)
+        print_json(payload)
+    elif args.cmd == "prepare-placement-study":
+        payload = build_toolsched_study_manifest(
+            Path(args.samples), Path(args.cwd), shard_count=args.shards
+        )
+        write_json(Path(args.out), payload)
+        print_json({
+            "out": args.out,
+            "entries": len(payload["entries"]),
+            "study_design": payload["study_design"],
+        })
+    elif args.cmd == "aggregate-placement":
+        samples, summary = aggregate_placement_rows(
+            Path(args.raw), args.min_success_per_candidate
+        )
+        count = write_samples(Path(args.out), samples)
+        print_json({"out": args.out, "samples": count, "aggregation": summary})
     elif args.cmd == "speculate":
         samples = read_samples(Path(args.samples))
         train, test = split_by_case(samples)
