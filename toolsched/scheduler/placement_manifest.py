@@ -98,6 +98,7 @@ def build_toolsched_study_manifest(
     samples_path: Path,
     cwd: Path,
     shard_count: int = 4,
+    workload_names: set[str] | None = None,
 ) -> dict[str, Any]:
     """Create approved real repository workloads across independent case shards."""
 
@@ -114,6 +115,14 @@ def build_toolsched_study_manifest(
         ("remaining_forest", "cpu_memory_mixed", 1200),
         ("quantile", "cpu_memory_mixed", 300),
     )
+    available = {name for name, _, _ in workloads}
+    selected_names = workload_names or available
+    unknown = selected_names - available
+    if unknown:
+        raise ValueError(f"unknown study workloads: {sorted(unknown)}")
+    workloads = tuple(row for row in workloads if row[0] in selected_names)
+    if not workloads:
+        raise ValueError("at least one study workload is required")
     environment = {
         "PYTHONDONTWRITEBYTECODE": "1",
         "OMP_NUM_THREADS": "1",

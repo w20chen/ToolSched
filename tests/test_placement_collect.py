@@ -129,6 +129,18 @@ class PlacementCollectionTests(unittest.TestCase):
         self.assertEqual(len({entry["invocation_id"] for entry in payload["entries"]}), 15)
         self.assertTrue(all(entry["approved"] for entry in payload["entries"]))
 
+    def test_study_manifest_can_select_a_quick_workload_subset(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            samples = root / "samples.jsonl"
+            samples.write_text("{}\n", encoding="utf-8")
+            payload = build_toolsched_study_manifest(
+                samples, root, shard_count=1, workload_names={"quantile"}
+            )
+
+        self.assertEqual(len(payload["entries"]), 1)
+        self.assertIn("--workload quantile", payload["entries"][0]["command"])
+
 
 if __name__ == "__main__":
     unittest.main()

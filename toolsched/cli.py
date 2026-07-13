@@ -122,6 +122,12 @@ def main() -> None:
     p.add_argument("--out", required=True)
     p.add_argument("--cwd", default=".")
     p.add_argument("--shards", type=int, default=4)
+    p.add_argument(
+        "--workload",
+        action="append",
+        choices=("bucket_logistic", "bucket_forest", "next_tool", "remaining_forest", "quantile"),
+        help="repeat to select a subset; default is all workloads",
+    )
 
     p = sub.add_parser("aggregate-placement")
     p.add_argument("--raw", required=True)
@@ -248,7 +254,10 @@ def main() -> None:
         print_json(payload)
     elif args.cmd == "prepare-placement-study":
         payload = build_toolsched_study_manifest(
-            Path(args.samples), Path(args.cwd), shard_count=args.shards
+            Path(args.samples),
+            Path(args.cwd),
+            shard_count=args.shards,
+            workload_names=set(args.workload) if args.workload else None,
         )
         write_json(Path(args.out), payload)
         print_json({
