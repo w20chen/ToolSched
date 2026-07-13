@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections import Counter
 from typing import Callable
 
 from ..episodes import AgentEpisode, EpisodeStep, build_episodes
@@ -95,6 +96,7 @@ def remaining_time_metrics(
     return {
         "n_episodes": len(episodes),
         "n_steps": n,
+        "label_sources": dict(Counter(r.label_source for r in rows)),
         "mae_ms": mean(abs_err),
         "wape": sum(abs_err) / y_abs_sum if y_abs_sum > 0 else 0.0,
         "mape": mean(abs_pct),

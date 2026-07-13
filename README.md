@@ -31,14 +31,9 @@ The first version includes these tasks:
   reports grouped empirical P50/P90/P99.
 - `resource_class`: a rule-based taxonomy until independent telemetry labels
   are available.
-- `placement`: interference-aware core selection conditioned on pre-launch
-  per-core/SMT/LLC/memory state. Real evaluation requires controlled
-  counterfactual replay; synthetic stress tests are reported separately.
-- `speculation`: a decision rule combining next-tool confidence, predicted
-  cost, read-only safety, and LLM slack.
 - `agent_remaining_time`: a post-tool prediction task. It predicts how much
-  observed tool-call time remains in the current agent episode after the
-  current tool has completed.
+  agent wall-clock time remains after the current tool has completed, including
+  later LLM time and later tool time when trace timestamps are available.
 
 ## Quick Start
 
@@ -49,50 +44,7 @@ python -m toolsched.cli profile --samples artifacts\samples.jsonl --out artifact
 python -m toolsched.cli evaluate-supervised --samples artifacts\samples.jsonl --out artifacts\supervised.json
 python -m toolsched.cli evaluate --samples artifacts\samples.jsonl --out artifacts\metrics.json
 python -m toolsched.cli calibrate --samples artifacts\samples.jsonl --out artifacts\calibration.json
-python -m toolsched.cli simulate-placement --samples artifacts\samples.jsonl --mode real --out artifacts\placement.json
-# Explicit policy-mechanics stress test; not evidence of real speedup:
-python -m toolsched.cli simulate-placement --samples artifacts\samples.jsonl --mode synthetic --out artifacts\placement.synthetic.json
-python -m toolsched.cli speculate --samples artifacts\samples.jsonl --out artifacts\speculation.json
 ```
-
-### Real Linux placement dataset
-
-The collector runs approved repository workloads on concrete Linux CPUs,
-randomizes action order, creates controlled SMT/LLC co-runner interference,
-records pre-launch state and raw repetitions, aggregates counterfactual costs,
-and can evaluate the result in the same command.
-
-```bash
-# 5 real workload families x 4 independent case shards = 20 invocations
-python -m toolsched.cli prepare-placement-study \
-  --samples artifacts/agent_non_bfcl.samples.jsonl \
-  --out artifacts/placement.study.manifest.json \
-  --shards 4
-
-python -m toolsched.cli collect-placement \
-  --manifest artifacts/placement.study.manifest.json \
-  --raw-out artifacts/placement.real.raw.jsonl \
-  --samples-out artifacts/placement.real.samples.jsonl \
-  --metrics-out artifacts/placement.real.metrics.json \
-  --summary-out artifacts/placement.real.collection.json \
-  --repeats 7 \
-  --max-candidates 4 \
-  --max-corunners 2 \
-  --perf-mode required \
-  --execute-approved-manifest
-```
-
-This command is Linux-only and executes every approved manifest command many
-times. Inspect the manifest first. `--perf-mode required` is the publication
-setting when kernel perf permissions are available; `auto` records whether
-each pressure value came from hardware counters or the controlled-load proxy.
-Raw JSONL is the primary dataset and is flushed after every replay, so an
-interrupted study can be recovered with `aggregate-placement`.
-The collection summary reports explicit minimum design gates (at least 20
-independent invocations, 5 repeats, 3 candidates, 2 scenarios, low failure
-rate, hardware perf availability, and aggregatable counterfactual samples).
-Passing them is a minimum engineering check, not a substitute for replication
-on held-out machines.
 
 For a smaller first pass:
 
@@ -145,14 +97,10 @@ This framework deliberately avoids treating every component as ML:
     baselines.
 - Rules and policies:
   - resource taxonomy.
-  - interference-aware single-thread core placement using pre-launch core,
-    SMT sibling, cluster, LLC, memory-bandwidth, run-queue, and frequency state.
-  - separately labeled nonlinear synthetic placement stress test.
-  - cost-aware speculative admission.
 
 ## Output Schema
 
-Each normalized row has the core shape:
+Each normalized row has the base shape:
 
 ```json
 {
@@ -174,24 +122,15 @@ Each normalized row has the core shape:
 
 ## Design Notes
 
-This repo intentionally separates:
+This repo intentionally separates online-available tool-call features,
+statistical latency profiling, supervised prediction tasks, and residual
+calibration.
 
-- hardware-independent tool demand features,
-- action-conditioned runtime response,
-- online residual calibration,
-- decision-aware metrics such as action ranking and regret.
-
-Placement evaluation never substitutes synthetic costs for missing real
-counterfactual labels. Real rows must provide both
-`resources.placement_candidates` (a pre-launch snapshot) and
-`labels.placement_costs` keyed by the same candidate ids. `--mode synthetic`
-uses a different nonlinear hidden response surface solely to validate policy
-ranking and metrics. See `docs/placement_design.md` for the schema, equations,
-baselines, and replay protocol.
-
-Remaining-time labels are built from normalized tool-call samples, so they
-measure remaining observed tool latency rather than full wall-clock agent time
-including LLM thinking, queueing, or hidden harness overhead.
+Remaining-time labels use attempt/tool timestamps to measure future agent
+wall-clock time after each completed tool call. This includes observed gaps
+between tool calls and, when attempt end time is available, final post-tool
+agent time. If timestamps are unavailable, the evaluator falls back to the
+legacy future-tool-duration label and reports that fallback in `label_sources`.
 
 Latest remaining-time check on `agent_non_bfcl.samples.jsonl`:
 

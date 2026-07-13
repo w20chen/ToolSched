@@ -19,6 +19,7 @@ def load_attempt(attempt: AttemptPath, history_k: int = 5) -> list[ToolSample]:
     if not isinstance(calls, list):
         return []
     attempt_resources = _load_resources(attempt.path / "resources.json")
+    attempt_resources.update(_load_attempt_timing(attempt.path / "results.json"))
     samples: list[ToolSample] = []
     tools_seen: list[str] = []
     for idx, call in enumerate(calls):
@@ -43,20 +44,11 @@ def load_attempt(attempt: AttemptPath, history_k: int = 5) -> list[ToolSample]:
         if idx + 1 < len(calls) and isinstance(calls[idx + 1], dict):
             next_tool = str(calls[idx + 1].get("tool") or "unknown")
         sample_resources = dict(attempt_resources)
-        # Placement state must be a pre-launch snapshot.  Do not silently use
-        # resource samples collected during/after the call as decision input.
         prelaunch = call.get("prelaunch_resources")
         if isinstance(prelaunch, dict):
             sample_resources.update(prelaunch)
-        if isinstance(call.get("placement_candidates"), (list, dict)):
-            sample_resources["placement_candidates"] = call["placement_candidates"]
 
         labels: dict[str, Any] = {"resource_class": resource_class}
-        placement_costs = call.get("placement_costs")
-        if placement_costs is None and isinstance(call.get("labels"), dict):
-            placement_costs = call["labels"].get("placement_costs")
-        if isinstance(placement_costs, dict):
-            labels["placement_costs"] = placement_costs
 
         sample = ToolSample(
             sample_id=f"{attempt.dataset}/{attempt.case_id}/{attempt.attempt_id}/{call.get('id') or idx}",
@@ -68,6 +60,7 @@ def load_attempt(attempt: AttemptPath, history_k: int = 5) -> list[ToolSample]:
             tool_family=family,
             timestamp=call.get("timestamp"),
             duration_ms=_duration(call),
+            end_timestamp=call.get("end_timestamp"),
             input=payload,
             result_preview=preview[:2048],
             features=features,
@@ -104,11 +97,51 @@ def load_datasets(
 def _duration(call: dict[str, Any]) -> float | None:
     value = call.get("duration_ms")
     if value is None and call.get("timestamp") and call.get("end_timestamp"):
-        return None
+        return _duration_from_timestamps(call.get("timestamp"), call.get("end_timestamp"))
     try:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _load_attempt_timing(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = read_json(path)
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    out: dict[str, Any] = {}
+    if payload.get("start_time"):
+        out["attempt_start_time"] = payload["start_time"]
+    if payload.get("end_time"):
+        out["attempt_end_time"] = payload["end_time"]
+    timing = payload.get("timing")
+    if isinstance(timing, dict):
+        if timing.get("wall_total_s") is not None:
+            out["attempt_wall_total_ms"] = _safe_float(timing.get("wall_total_s")) * 1000.0
+        if timing.get("agent_exec_s") is not None:
+            out["agent_exec_ms"] = _safe_float(timing.get("agent_exec_s")) * 1000.0
+    elif payload.get("total_time") is not None:
+        out["attempt_wall_total_ms"] = _safe_float(payload.get("total_time")) * 1000.0
+    return out
+
+
+def _duration_from_timestamps(start: Any, end: Any) -> float | None:
+    from datetime import datetime, timezone
+
+    try:
+        start_dt = datetime.fromisoformat(str(start).replace("Z", "+00:00"))
+        end_dt = datetime.fromisoformat(str(end).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if start_dt.tzinfo is None:
+        start_dt = start_dt.replace(tzinfo=timezone.utc)
+    if end_dt.tzinfo is None:
+        end_dt = end_dt.replace(tzinfo=timezone.utc)
+    return max(0.0, (end_dt - start_dt).total_seconds() * 1000.0)
 
 
 def _load_resources(path: Path) -> dict[str, Any]:
@@ -120,16 +153,11 @@ def _load_resources(path: Path) -> dict[str, Any]:
         return {}
     if not isinstance(payload, dict):
         return {}
-    # Preserve explicitly named pre-launch placement inputs.  Aggregate
-    # samples below describe the attempt and are not treated as a per-call
-    # placement snapshot.
     out = {
         key: payload[key]
         for key in ("machine_profile", "cpu_parallelism", "observed_parallelism", "max_thread_count")
         if key in payload
     }
-    if isinstance(payload.get("placement_candidates"), (list, dict)):
-        out["placement_candidates"] = payload["placement_candidates"]
 
     samples = payload.get("samples")
     if isinstance(samples, list) and samples:

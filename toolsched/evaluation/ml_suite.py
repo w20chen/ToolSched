@@ -34,8 +34,6 @@ def run_supervised_suite(samples: list[ToolSample]) -> dict:
             "next_tool": "learned: true label comes from the following trace tool",
             "latency_quantiles": "statistical baseline: grouped empirical quantiles, not a supervised ML model",
             "resource_class": "rule taxonomy: no independent telemetry label yet",
-            "placement": "policy/evaluator only: no real counterfactual labels yet",
-            "speculation": "decision rule using next-tool confidence and cost estimate",
         },
         "latency_bucket": {
             "models": {

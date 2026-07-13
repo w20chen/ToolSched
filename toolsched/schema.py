@@ -15,6 +15,7 @@ class ToolSample:
     tool_family: str
     timestamp: str | None
     duration_ms: float | None
+    end_timestamp: str | None = None
     input: dict[str, Any] = field(default_factory=dict)
     result_preview: str = ""
     features: dict[str, Any] = field(default_factory=dict)
@@ -33,6 +34,7 @@ class ToolSample:
             "operation": self.operation,
             "tool_family": self.tool_family,
             "timestamp": self.timestamp,
+            "end_timestamp": self.end_timestamp,
             "duration_ms": self.duration_ms,
             "input": self.input,
             "result_preview": self.result_preview,
@@ -54,6 +56,7 @@ class ToolSample:
             operation=str(row.get("operation", "")),
             tool_family=str(row.get("tool_family", "")),
             timestamp=row.get("timestamp"),
+            end_timestamp=row.get("end_timestamp"),
             duration_ms=_float_or_none(row.get("duration_ms")),
             input=dict(row.get("input") or {}),
             result_preview=str(row.get("result_preview") or ""),
@@ -85,4 +88,3 @@ def _float_or_none(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
-

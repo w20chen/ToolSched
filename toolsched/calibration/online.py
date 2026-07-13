@@ -10,12 +10,11 @@ class EwmaScaleCalibrator:
         self.alpha = alpha
         self.min_scale = min_scale
         self.max_scale = max_scale
-        self.scale: dict[tuple[str, str, str], float] = defaultdict(lambda: 1.0)
+        self.scale: dict[tuple[str, str], float] = defaultdict(lambda: 1.0)
 
-    def group(self, sample: ToolSample) -> tuple[str, str, str]:
+    def group(self, sample: ToolSample) -> tuple[str, str]:
         machine = str(sample.resources.get("machine_profile", "unknown"))
-        placement = str(sample.labels.get("placement_class", "observed"))
-        return (sample.tool_family, machine, placement)
+        return (sample.tool_family, machine)
 
     def apply(self, sample: ToolSample, pred: ToolCostDistribution) -> ToolCostDistribution:
         c = self.scale[self.group(sample)]
@@ -78,4 +77,3 @@ class QuantileCoverageCalibrator:
             self.tail_scale[key] *= 1 + self.step
         elif coverage > self.target_p90 + 0.05:
             self.tail_scale[key] = max(1.0, self.tail_scale[key] * (1 - self.step))
-

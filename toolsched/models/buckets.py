@@ -169,6 +169,7 @@ class HistoricalBucketFeatureModel:
             tool_family=sample.tool_family,
             timestamp=sample.timestamp,
             duration_ms=sample.duration_ms,
+            end_timestamp=sample.end_timestamp,
             input=sample.input,
             result_preview=sample.result_preview,
             features=merged,
