@@ -1,0 +1,21 @@
+{
+  "dataset_root": "C:\\Users\\29068\\Desktop\\agent_datasets",
+  "history_k": 5,
+  "test_ratio": 0.2,
+  "prediction_tasks": [
+    "latency",
+    "resource_class",
+    "placement",
+    "online_calibration",
+    "next_tool",
+    "speculation"
+  ],
+  "quantiles": [0.5, 0.9, 0.99],
+  "placements": [
+    "os_default",
+    "single_core",
+    "compact_l3",
+    "spread_numa",
+    "cross_socket"
+  ]
+}
