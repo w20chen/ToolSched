@@ -30,7 +30,7 @@ The first version includes these tasks:
 - `latency_quantiles`: a statistical profile, not a supervised ML model. It
   reports grouped empirical P50/P90/P99.
 - `resource_class`: a rule-based taxonomy until independent telemetry labels
-  are available.
+  are available. It is a coarse load class derived from `operation`.
 - `agent_remaining_time`: a post-tool prediction task. It predicts how much
   agent wall-clock time remains after the current tool has completed, including
   later LLM time and later tool time when trace timestamps are available.
@@ -109,8 +109,8 @@ Each normalized row has the base shape:
   "case_id": "12rambau__sepal_ui-516",
   "attempt_id": "attempt_1",
   "tool": "exec-grep",
-  "operation": "grep",
-  "tool_family": "terminal",
+  "operation": "text_search_simple",
+  "tool_family": "search_text_processing",
   "timestamp": "2026-06-26T13:26:41.672047Z",
   "duration_ms": 510.2,
   "features": {},
@@ -125,6 +125,19 @@ Each normalized row has the base shape:
 This repo intentionally separates online-available tool-call features,
 statistical latency profiling, supervised prediction tasks, and residual
 calibration.
+
+Tool taxonomy is layered:
+
+- `tool`: the concrete invoked tool name.
+- `operation`: a load-oriented abstraction, such as `text_search_simple`,
+  `text_search_recursive`, `project_build`, or `package_install`.
+- `resource_class`: a coarse resource bucket determined by `operation`.
+  The relation is many-to-one: every operation has one resource class, while
+  multiple operations may share a class.
+- `tool_family`: a functional category, not a load class. Current families are
+  `data_analysis_scripting`, `test_execution`, `package_environment_mgmt`,
+  `search_text_processing`, `file_navigation`, `version_control`, `file_io`,
+  and `web_network`.
 
 Remaining-time labels use attempt/tool timestamps to measure future agent
 wall-clock time after each completed tool call. This includes observed gaps

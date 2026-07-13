@@ -80,7 +80,7 @@ def main() -> None:
         models = {
             "global_quantile": GlobalQuantileModel().fit(train),
             "per_tool_quantile": GroupQuantileModel(("tool",)).fit(train),
-            "per_operation_resource_quantile": GroupQuantileModel(("operation", "resource_class")).fit(train),
+            "per_operation_quantile": GroupQuantileModel(("operation",)).fit(train),
             "ewma_tool": EwmaToolModel().fit(train),
         }
         next_model = NextToolMarkovModel().fit(train)
@@ -102,7 +102,7 @@ def main() -> None:
     elif args.cmd == "calibrate":
         samples = read_samples(Path(args.samples))
         train, test = split_by_case(samples)
-        model = GroupQuantileModel(("operation", "resource_class")).fit(train)
+        model = GroupQuantileModel(("operation",)).fit(train)
         payload = replay_calibration(test, model.predict)
         emit(payload, args.out)
     elif args.cmd == "evaluate-remaining":

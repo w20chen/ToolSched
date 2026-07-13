@@ -40,8 +40,8 @@ class ToolSample:
     case_id: str         # task/case identifier within the dataset
     attempt_id: str      # which attempt at solving the case
     tool: str            # the tool invoked, e.g. "read_file", "exec-grep"
-    operation: str       # normalized operation, e.g. "grep", "build", "python"
-    tool_family: str     # high-level category, e.g. "file", "search", "terminal", "network"
+    operation: str       # load-oriented operation, e.g. "text_search_recursive"
+    tool_family: str     # functional category, e.g. "search_text_processing"
     timestamp: str | None    # ISO-8601 timestamp of when the tool was invoked
     duration_ms: float | None  # wall-clock duration of the tool call in milliseconds
     end_timestamp: str | None  # ISO-8601 timestamp of when the tool completed
@@ -61,13 +61,14 @@ for `tool_calls.json` files via `discover_attempts()`. Each attempt directory
 represents one agent run on one task case. The JSON array of tool calls is
 processed sequentially:
 
-1. **Normalize the operation**: `normalize_operation()` classifies the tool
-   call's command text into a canonical operation name (e.g., detect `grep`
-   vs `build` vs `test`).
+1. **Normalize the operation and family**: `normalize_operation()` maps the
+   concrete `tool` into a load-oriented `operation` and a functional
+   `tool_family`. The family says what the tool is for; the operation says
+   what kind of load it tends to create.
 2. **Extract features**: `extract_command_features()` parses the command text
    to produce numeric and boolean features (command length, flag count, etc.).
-3. **Infer resource class**: `infer_resource_class()` applies a rule-based
-   taxonomy based on the tool family and operation.
+3. **Infer resource class**: `infer_resource_class()` maps each operation to
+   one fixed coarse resource class.
 4. **Build history**: A sliding window of the last `k` tool names is tracked
    as the `history` field.
 5. **Set `next_tool`**: The tool name of the *next* call in the array becomes
@@ -251,7 +252,7 @@ directly reports observed quantiles from grouped training data.
 
 ### Model: `GroupQuantileModel`
 
-Groups tool calls by a configurable key (default: `("operation", "resource_class")`)
+Groups tool calls by a configurable key (default: `("operation",)`)
 and computes the **P50, P90, and P99** of the observed `duration_ms` values
 within each group.
 
@@ -302,7 +303,7 @@ on the `latency_p50_ms` prediction:
 ## 5. Problem 4: Resource Class Taxonomy
 
 **Goal**: Classify each tool call into a **resource usage category** based on
-its operation and tool family.
+its operation.
 
 This is a **rule-based taxonomy** — not a learned ML model — because
 independent telemetry labels (actual CPU/memory measurements per tool call)
@@ -310,22 +311,28 @@ are not yet available in the datasets.
 
 ### The Taxonomy Rules
 
-Defined in `toolsched/features/resource_class.py`:
+Defined in `toolsched/features/resource_class.py`. The mapping is many-to-one:
+each operation has exactly one resource class, while multiple operations may
+share the same resource class.
 
-| Condition | Resource Class |
+| Operation | Resource Class |
 |-----------|---------------|
-| Operation is `pytest` or `test` | `cpu_memory_mixed` |
-| Operation is `build` or `python` | `cpu` |
-| Operation is `grep` or `find` (recursive or with includes) | `io_search` |
-| Operation is `grep` or `find` (simple) | `search` |
-| Operation is `read_file`, `write_file`, `edit_file`, `list_dir`, `git_diff`, `git_status` | `file_io` |
-| Tool family is `network` | `network` |
-| Tool family is `control` | `light_control` |
-| Everything else | `unknown` |
+| `data_script` | `cpu` |
+| `test_run`, `project_build` | `cpu_memory_mixed` |
+| `package_install`, `version_control_update`, `download` | `network_disk_io` |
+| `text_search_simple` | `search` |
+| `text_search_recursive` | `io_search` |
+| `text_transform` | `cpu_io_mixed` |
+| `directory_list`, `file_discovery`, `version_control_status` | `metadata_io` |
+| `file_read`, `file_write`, `file_edit`, `version_control_diff`, `version_control_history` | `file_io` |
+| `memory_read`, `memory_write`, `working_directory` | `light_control` |
+| `web_search`, `web_fetch` | `network` |
+| `shell_script`, `unknown_command` | `unknown` |
 
 This classification is stored in `sample.labels["resource_class"]` and is used
-by other models (e.g., the quantile profiler groups by it, and the supervised
-models use it as a `resource_class_hint` one-hot feature).
+by other models as a `resource_class_hint` one-hot feature. Quantile profiling
+groups by `operation`; `resource_class` is useful as a coarser readable load
+bucket but is intentionally derived from operation.
 
 ### Metrics
 
@@ -565,7 +572,7 @@ feature vector. The encoder produces:
 - `dataset=<name>` — which benchmark
 - `tool=<name>` — which tool
 - `operation=<name>` — the normalized operation
-- `tool_family=<name>` — the high-level category
+- `tool_family=<name>` — the functional category
 - `resource_class_hint=<class>` — the inferred resource class
 
 **Numeric features (log1p-transformed):**
@@ -687,8 +694,8 @@ Runs all supervised problems end-to-end:
 | **Dataset** | A collection of cases from one benchmark (e.g., SWE-Bench Verified). |
 | **Episode** | Same as an attempt — the sequence of all tool calls within one (dataset, case, attempt). |
 | **Tool** | A named function the agent can invoke (e.g., `read_file`, `exec-grep`, `write_file`). |
-| **Operation** | A normalized semantic classification of what the tool does (e.g., "grep", "build", "python"). |
-| **Tool Family** | A high-level grouping: `file`, `search`, `terminal`, `test`, `network`, `control`, `tool`. |
+| **Operation** | A load-oriented abstraction of the tool call (e.g., `text_search_recursive`, `project_build`, `package_install`). |
+| **Tool Family** | A functional grouping: `data_analysis_scripting`, `test_execution`, `package_environment_mgmt`, `search_text_processing`, `file_navigation`, `version_control`, `file_io`, `web_network`. |
 | **Duration** | Wall-clock time a tool call takes, in milliseconds. |
 | **Latency Bucket** | 5 discrete categories of duration: `<100ms`, `0.1-1s`, `1-10s`, `10-60s`, `>60s`. |
 | **Remaining Time** | Wall-clock time from the current step to the end of the episode. |

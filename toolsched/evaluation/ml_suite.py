@@ -21,7 +21,7 @@ def run_supervised_suite(samples: list[ToolSample]) -> dict:
     history_markov = HistoryMarkovModel().fit(train)
     next_model = NextToolLogisticModel().fit(train)
 
-    quantile_model = GroupQuantileModel(("operation", "resource_class")).fit(train)
+    quantile_model = GroupQuantileModel(("operation",)).fit(train)
 
     return {
         "split": {
@@ -81,7 +81,7 @@ def run_supervised_suite(samples: list[ToolSample]) -> dict:
             },
         },
         "latency_quantile_profile": {
-            "model": "Group empirical P50/P90/P99 by operation + resource_class",
+            "model": "Group empirical P50/P90/P99 by operation",
             "offline": regression_metrics(test, quantile_model.predict),
             "online_calibration": replay_calibration(test, quantile_model.predict),
         },

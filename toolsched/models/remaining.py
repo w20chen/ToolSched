@@ -736,11 +736,37 @@ class StepsDecomposedRemaining:
         base = row.feature_vector()
         # Add one-hot for tool_family (top families)
         family = row.sample.tool_family
-        for f in ["file", "search", "test", "terminal", "network", "control", "tool"]:
+        for f in [
+            "data_analysis_scripting",
+            "test_execution",
+            "package_environment_mgmt",
+            "search_text_processing",
+            "file_navigation",
+            "version_control",
+            "file_io",
+            "web_network",
+        ]:
             base[f"family_{f}"] = 1.0 if family == f else 0.0
         # Add one-hot for operation (top ops)
         op = row.sample.operation
-        for o in ["read_file", "grep", "find", "pytest", "python", "build", "git", "edit_file", "list_dir"]:
+        for o in [
+            "data_script",
+            "shell_script",
+            "test_run",
+            "project_build",
+            "package_install",
+            "text_search_simple",
+            "text_search_recursive",
+            "file_discovery",
+            "directory_list",
+            "version_control_diff",
+            "version_control_status",
+            "file_read",
+            "file_write",
+            "file_edit",
+            "web_search",
+            "web_fetch",
+        ]:
             base[f"op_{o}"] = 1.0 if op == o else 0.0
         # Interaction: step_index * mean_duration_so_far
         base["step_x_mean_dur"] = base["step_index"] * base["mean_duration_so_far_ms"]
@@ -751,10 +777,34 @@ class StepsDecomposedRemaining:
     @staticmethod
     def enriched_feature_names() -> list[str]:
         base = EpisodeStep.feature_names()
-        families = ["family_file", "family_search", "family_test", "family_terminal",
-                     "family_network", "family_control", "family_tool"]
-        ops = ["op_read_file", "op_grep", "op_find", "op_pytest", "op_python",
-               "op_build", "op_git", "op_edit_file", "op_list_dir"]
+        families = [
+            "family_data_analysis_scripting",
+            "family_test_execution",
+            "family_package_environment_mgmt",
+            "family_search_text_processing",
+            "family_file_navigation",
+            "family_version_control",
+            "family_file_io",
+            "family_web_network",
+        ]
+        ops = [
+            "op_data_script",
+            "op_shell_script",
+            "op_test_run",
+            "op_project_build",
+            "op_package_install",
+            "op_text_search_simple",
+            "op_text_search_recursive",
+            "op_file_discovery",
+            "op_directory_list",
+            "op_version_control_diff",
+            "op_version_control_status",
+            "op_file_read",
+            "op_file_write",
+            "op_file_edit",
+            "op_web_search",
+            "op_web_fetch",
+        ]
         extra = ["step_x_mean_dur", "progress_proxy"]
         return base + families + ops + extra
 
