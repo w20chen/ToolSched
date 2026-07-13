@@ -389,7 +389,6 @@ def _remaining_feature_dict(row: EpisodeStep) -> dict[str, float]:
         f"tool={s.tool}": 1.0,
         f"operation={s.operation}": 1.0,
         f"family={s.tool_family}": 1.0,
-        f"resource={s.labels.get('resource_class', 'unknown')}": 1.0,
         "step_index_log": math.log1p(row.step_index),
         "cumulative_time_log": math.log1p(max(0.0, row.cumulative_time_ms)),
         "current_duration_log": math.log1p(max(0.0, duration)),

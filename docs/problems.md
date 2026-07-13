@@ -329,10 +329,11 @@ share the same resource class.
 | `web_search`, `web_fetch` | `network` |
 | `shell_script`, `unknown_command` | `unknown` |
 
-This classification is stored in `sample.labels["resource_class"]` and is used
-by other models as a `resource_class_hint` one-hot feature. Quantile profiling
-groups by `operation`; `resource_class` is useful as a coarser readable load
-bucket but is intentionally derived from operation.
+This classification is stored in `sample.labels["resource_class"]` as derived
+metadata for profiles, reports, and consistency checks. It is not used as an
+independent model feature because it is determined by `operation`. Quantile
+profiling groups by `operation`; `resource_class` remains useful as a coarser
+readable load bucket.
 
 ### Metrics
 
@@ -466,7 +467,7 @@ A `RandomForestRegressor` (80 trees, max depth 14) that predicts
 - Uses OOB (out-of-bag) residual quantiles to calibrate P90/P99 predictions:
   `p90 = expm1(log_p50 + residual_q90 * tail_scale)`
 - Features include one-hot encodings of dataset, tool, operation, family,
-  resource class, plus numerical features (all log-transformed):
+  plus numerical features (all log-transformed):
   `step_index_log`, `cumulative_time_log`, `current_duration_log`,
   `mean_duration_so_far_log`, `command_len_log`, `argv_count_log`,
   `flag_count_log`, `has_pipe`, `has_recursive_hint`, `history_len`,
@@ -573,7 +574,9 @@ feature vector. The encoder produces:
 - `tool=<name>` — which tool
 - `operation=<name>` — the normalized operation
 - `tool_family=<name>` — the functional category
-- `resource_class_hint=<class>` — the inferred resource class
+
+`resource_class` is intentionally omitted from the model feature vector because
+it is derived from `operation`.
 
 **Numeric features (log1p-transformed):**
 - `command_len`, `argv_count`, `flag_count`, `include_count`,

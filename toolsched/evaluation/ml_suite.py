@@ -47,7 +47,6 @@ def run_supervised_suite(samples: list[ToolSample]) -> dict:
                 "tool",
                 "operation",
                 "tool_family",
-                "resource_class_hint",
                 "command_len",
                 "argv_count",
                 "flag_count",

@@ -49,7 +49,6 @@ class SampleFeatureEncoder:
             f"tool={sample.tool}": 1.0,
             f"operation={sample.operation}": 1.0,
             f"tool_family={sample.tool_family}": 1.0,
-            f"resource_class_hint={sample.labels.get('resource_class', 'unknown')}": 1.0,
         }
         for name in NUMERIC_FEATURES:
             row[name] = _log1p(sample.features.get(name))

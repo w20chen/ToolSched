@@ -35,7 +35,6 @@ def load_attempt(attempt: AttemptPath, history_k: int = 5) -> list[ToolSample]:
             {
                 "call_index": idx,
                 "history_len": min(len(tools_seen), history_k),
-                "resource_class_heuristic": resource_class,
                 "operation": operation,
                 "tool_family": family,
             }

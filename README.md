@@ -133,7 +133,8 @@ Tool taxonomy is layered:
   `text_search_recursive`, `project_build`, or `package_install`.
 - `resource_class`: a coarse resource bucket determined by `operation`.
   The relation is many-to-one: every operation has one resource class, while
-  multiple operations may share a class.
+  multiple operations may share a class. It is retained as derived metadata
+  for profiles and reports, not as an independent model feature.
 - `tool_family`: a functional category, not a load class. Current families are
   `data_analysis_scripting`, `test_execution`, `package_environment_mgmt`,
   `search_text_processing`, `file_navigation`, `version_control`, `file_io`,

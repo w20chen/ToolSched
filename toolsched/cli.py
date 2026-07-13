@@ -12,6 +12,7 @@ from .evaluation.online import replay_calibration
 from .evaluation.profile import tool_profiles
 from .evaluation.remaining import remaining_by_progress, remaining_time_metrics
 from .evaluation.split import split_by_case
+from .features.resource_class import infer_resource_class
 from .io import read_samples, write_json, write_samples
 from .models.baselines import EwmaToolModel, GlobalQuantileModel, GroupQuantileModel, NextToolMarkovModel
 from .models.remaining import (
@@ -87,7 +88,9 @@ def main() -> None:
         payload = {
             "split": {"train": len(train), "test": len(test), "strategy": "case_holdout"},
             "latency": {name: regression_metrics(test, model.predict) for name, model in models.items()},
-            "resource_class": classification_metrics(test, lambda s: s.features.get("resource_class_heuristic", "unknown")),
+            "resource_class": classification_metrics(
+                test, lambda s: infer_resource_class(s.tool_family, s.operation, s.features)
+            ),
             "next_tool": next_tool_metrics(test, next_model.predict),
         }
         emit(payload, args.out)
