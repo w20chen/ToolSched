@@ -11,11 +11,21 @@
     "speculation"
   ],
   "quantiles": [0.5, 0.9, 0.99],
-  "placements": [
-    "os_default",
-    "single_core",
-    "compact_l3",
-    "spread_numa",
-    "cross_socket"
+  "placement_action": "concrete_core_candidate",
+  "placement_state_fields": [
+    "core_util",
+    "smt_sibling_util",
+    "cluster_util",
+    "llc_pressure",
+    "memory_bw_pressure",
+    "run_queue",
+    "frequency_ratio"
+  ],
+  "placement_baselines": [
+    "os_proxy",
+    "least_core_util",
+    "smt_aware",
+    "least_cluster_load",
+    "random"
   ]
 }

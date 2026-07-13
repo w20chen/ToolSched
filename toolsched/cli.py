@@ -64,6 +64,14 @@ def main() -> None:
     p = sub.add_parser("simulate-placement")
     p.add_argument("--samples", required=True)
     p.add_argument("--out")
+    p.add_argument(
+        "--mode",
+        choices=("real", "synthetic", "both"),
+        default="real",
+        help="real is the default; synthetic is an explicitly labeled policy stress test",
+    )
+    p.add_argument("--synthetic-clusters", type=int, default=2)
+    p.add_argument("--synthetic-cores-per-cluster", type=int, default=2)
 
     p = sub.add_parser("speculate")
     p.add_argument("--samples", required=True)
@@ -120,7 +128,13 @@ def main() -> None:
         samples = read_samples(Path(args.samples))
         train, test = split_by_case(samples)
         model = GroupQuantileModel(("operation", "resource_class")).fit(train)
-        payload = placement_metrics(test, model.predict)
+        payload = placement_metrics(
+            test,
+            model.predict,
+            mode=args.mode,
+            synthetic_clusters=args.synthetic_clusters,
+            synthetic_cores_per_cluster=args.synthetic_cores_per_cluster,
+        )
         emit(payload, args.out)
     elif args.cmd == "speculate":
         samples = read_samples(Path(args.samples))

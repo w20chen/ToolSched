@@ -31,8 +31,9 @@ The first version includes these tasks:
   reports grouped empirical P50/P90/P99.
 - `resource_class`: a rule-based taxonomy until independent telemetry labels
   are available.
-- `placement`: a policy/evaluator only until controlled replay provides real
-  counterfactual placement labels.
+- `placement`: interference-aware core selection conditioned on pre-launch
+  per-core/SMT/LLC/memory state. Real evaluation requires controlled
+  counterfactual replay; synthetic stress tests are reported separately.
 - `speculation`: a decision rule combining next-tool confidence, predicted
   cost, read-only safety, and LLM slack.
 - `agent_remaining_time`: a post-tool prediction task. It predicts how much
@@ -48,7 +49,9 @@ python -m toolsched.cli profile --samples artifacts\samples.jsonl --out artifact
 python -m toolsched.cli evaluate-supervised --samples artifacts\samples.jsonl --out artifacts\supervised.json
 python -m toolsched.cli evaluate --samples artifacts\samples.jsonl --out artifacts\metrics.json
 python -m toolsched.cli calibrate --samples artifacts\samples.jsonl --out artifacts\calibration.json
-python -m toolsched.cli simulate-placement --samples artifacts\samples.jsonl --out artifacts\placement.json
+python -m toolsched.cli simulate-placement --samples artifacts\samples.jsonl --mode real --out artifacts\placement.json
+# Explicit policy-mechanics stress test; not evidence of real speedup:
+python -m toolsched.cli simulate-placement --samples artifacts\samples.jsonl --mode synthetic --out artifacts\placement.synthetic.json
 python -m toolsched.cli speculate --samples artifacts\samples.jsonl --out artifacts\speculation.json
 ```
 
@@ -103,7 +106,9 @@ This framework deliberately avoids treating every component as ML:
     baselines.
 - Rules and policies:
   - resource taxonomy.
-  - synthetic placement evaluator.
+  - interference-aware single-thread core placement using pre-launch core,
+    SMT sibling, cluster, LLC, memory-bandwidth, run-queue, and frequency state.
+  - separately labeled nonlinear synthetic placement stress test.
   - cost-aware speculative admission.
 
 ## Output Schema
@@ -137,11 +142,13 @@ This repo intentionally separates:
 - online residual calibration,
 - decision-aware metrics such as action ranking and regret.
 
-The default data only contains observed placements for many traces. Placement
-evaluation therefore supports two modes:
-
-- real counterfactual mode if rows include `labels.placement_costs`;
-- synthetic what-if mode to validate the scheduler and metrics pipeline.
+Placement evaluation never substitutes synthetic costs for missing real
+counterfactual labels. Real rows must provide both
+`resources.placement_candidates` (a pre-launch snapshot) and
+`labels.placement_costs` keyed by the same candidate ids. `--mode synthetic`
+uses a different nonlinear hidden response surface solely to validate policy
+ranking and metrics. See `docs/placement_design.md` for the schema, equations,
+baselines, and replay protocol.
 
 Remaining-time labels are built from normalized tool-call samples, so they
 measure remaining observed tool latency rather than full wall-clock agent time

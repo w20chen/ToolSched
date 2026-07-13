@@ -18,7 +18,7 @@ def load_attempt(attempt: AttemptPath, history_k: int = 5) -> list[ToolSample]:
         return []
     if not isinstance(calls, list):
         return []
-    resources = _load_resources(attempt.path / "resources.json")
+    attempt_resources = _load_resources(attempt.path / "resources.json")
     samples: list[ToolSample] = []
     tools_seen: list[str] = []
     for idx, call in enumerate(calls):
@@ -42,6 +42,22 @@ def load_attempt(attempt: AttemptPath, history_k: int = 5) -> list[ToolSample]:
         next_tool = None
         if idx + 1 < len(calls) and isinstance(calls[idx + 1], dict):
             next_tool = str(calls[idx + 1].get("tool") or "unknown")
+        sample_resources = dict(attempt_resources)
+        # Placement state must be a pre-launch snapshot.  Do not silently use
+        # resource samples collected during/after the call as decision input.
+        prelaunch = call.get("prelaunch_resources")
+        if isinstance(prelaunch, dict):
+            sample_resources.update(prelaunch)
+        if isinstance(call.get("placement_candidates"), (list, dict)):
+            sample_resources["placement_candidates"] = call["placement_candidates"]
+
+        labels: dict[str, Any] = {"resource_class": resource_class}
+        placement_costs = call.get("placement_costs")
+        if placement_costs is None and isinstance(call.get("labels"), dict):
+            placement_costs = call["labels"].get("placement_costs")
+        if isinstance(placement_costs, dict):
+            labels["placement_costs"] = placement_costs
+
         sample = ToolSample(
             sample_id=f"{attempt.dataset}/{attempt.case_id}/{attempt.attempt_id}/{call.get('id') or idx}",
             dataset=attempt.dataset,
@@ -55,8 +71,8 @@ def load_attempt(attempt: AttemptPath, history_k: int = 5) -> list[ToolSample]:
             input=payload,
             result_preview=preview[:2048],
             features=features,
-            labels={"resource_class": resource_class},
-            resources=resources,
+            labels=labels,
+            resources=sample_resources,
             history=tools_seen[-history_k:],
             next_tool=next_tool,
         )
@@ -104,19 +120,30 @@ def _load_resources(path: Path) -> dict[str, Any]:
         return {}
     if not isinstance(payload, dict):
         return {}
+    # Preserve explicitly named pre-launch placement inputs.  Aggregate
+    # samples below describe the attempt and are not treated as a per-call
+    # placement snapshot.
+    out = {
+        key: payload[key]
+        for key in ("machine_profile", "cpu_parallelism", "observed_parallelism", "max_thread_count")
+        if key in payload
+    }
+    if isinstance(payload.get("placement_candidates"), (list, dict)):
+        out["placement_candidates"] = payload["placement_candidates"]
+
     samples = payload.get("samples")
     if isinstance(samples, list) and samples:
         cpu = [_safe_float(s.get("cpu_percent")) for s in samples if isinstance(s, dict)]
         ipc = [_safe_float(s.get("ipc")) for s in samples if isinstance(s, dict)]
         ctx = [_safe_float(s.get("context_switches")) for s in samples if isinstance(s, dict)]
-        return {
+        out.update({
             "sample_count": len(samples),
             "cpu_percent_mean": _mean(cpu),
             "cpu_percent_max": max(cpu) if cpu else None,
             "ipc_mean": _mean(ipc),
             "context_switches_max": max(ctx) if ctx else None,
-        }
-    return {}
+        })
+    return out
 
 
 def _safe_float(value: Any) -> float:

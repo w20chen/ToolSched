@@ -1,5 +1,11 @@
 # ToolSched 实验整理
 
+> **Placement 结果口径更新：** 旧版 `swe_terminal.placement.json` 使用相同的
+> resource-class factor 同时生成策略排序与 synthetic oracle，因此 Top-1=1.000
+> 是循环论证，已废弃。新版动作是带预启动 core/SMT/cluster 遥测的具体核心，
+> 默认只评估真实 `placement_costs`；synthetic 仅作为独立、显式标注的压力测试。
+> 方法与数据格式见 `docs/placement_design.md`。
+
 数据来源：本页数字来自当前 `artifacts/` 下已经生成的实验结果，主结果优先使用
 `agent_non_bfcl.*`，即 DeepResearchBench + SWE-ReBench + SWE-Bench Verified +
 Terminal-Bench，且过滤 `duration_ms >= 1` 的真实工具调用。
@@ -314,4 +320,3 @@ Admission rule：
 | Agent remaining-time 只能说“有改善”，不能说高精度 | Random forest WAPE 0.788 vs global 0.876，R2 0.033 |
 | resource_class 和 placement 不应包装成已验证 ML | resource_class 是规则标签；placement 使用 synthetic fallback |
 | speculation 当前是可运行策略原型 | admission 4.0%，hit rate 60%，hidden/waste 量级接近 |
-
