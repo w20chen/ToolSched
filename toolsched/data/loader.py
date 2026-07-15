@@ -5,7 +5,6 @@ from typing import Any, Iterable
 
 from ..features.command import extract_command_features, normalize_operation
 from ..features.exec_classifier import classify_exec_tool_name
-from ..features.resource_class import infer_resource_class
 from ..io import read_json
 from ..schema import ToolSample
 from .discovery import AttemptPath, discover_attempts
@@ -31,7 +30,6 @@ def load_attempt(attempt: AttemptPath, history_k: int = 5) -> list[ToolSample]:
         preview = str(call.get("result_preview") or "")
         operation, family = normalize_operation(tool, payload)
         features = extract_command_features(tool, payload, preview)
-        resource_class = infer_resource_class(family, operation, features)
         features.update(
             {
                 "call_index": idx,
@@ -49,8 +47,6 @@ def load_attempt(attempt: AttemptPath, history_k: int = 5) -> list[ToolSample]:
         if isinstance(prelaunch, dict):
             sample_resources.update(prelaunch)
 
-        labels: dict[str, Any] = {"resource_class": resource_class}
-
         sample = ToolSample(
             sample_id=f"{attempt.dataset}/{attempt.case_id}/{attempt.attempt_id}/{call.get('id') or idx}",
             dataset=attempt.dataset,
@@ -65,7 +61,7 @@ def load_attempt(attempt: AttemptPath, history_k: int = 5) -> list[ToolSample]:
             input=payload,
             result_preview=preview[:2048],
             features=features,
-            labels=labels,
+            labels={},
             resources=sample_resources,
             history=tools_seen[-history_k:],
             next_tool=next_tool,

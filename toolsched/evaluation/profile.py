@@ -7,11 +7,11 @@ from ..schema import ToolSample
 
 
 def tool_profiles(samples: list[ToolSample]) -> dict:
-    groups: dict[tuple[str, str, str], list[ToolSample]] = defaultdict(list)
+    groups: dict[tuple[str, str], list[ToolSample]] = defaultdict(list)
     for s in samples:
-        groups[(s.tool_family, s.operation, str(s.labels.get("resource_class", "unknown")))].append(s)
+        groups[(s.tool_family, s.operation)].append(s)
     rows = []
-    for (family, operation, resource_class), items in sorted(groups.items()):
+    for (family, operation), items in sorted(groups.items()):
         durations = [float(s.duration_ms) for s in items if s.duration_ms is not None]
         command_len = [float(s.features.get("command_len", 0)) for s in items]
         preview_len = [float(s.features.get("preview_len", 0)) for s in items]
@@ -19,7 +19,6 @@ def tool_profiles(samples: list[ToolSample]) -> dict:
             {
                 "tool_family": family,
                 "operation": operation,
-                "resource_class": resource_class,
                 "count": len(items),
                 "latency_p50_ms": quantile(durations, 0.50),
                 "latency_p90_ms": quantile(durations, 0.90),

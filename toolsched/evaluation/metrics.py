@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from collections import Counter
 from typing import Callable
 
 from ..schema import ToolCostDistribution, ToolSample
@@ -46,27 +45,6 @@ def regression_metrics(
         "pinball_p99": mean(pin99),
         "coverage_p90": cover90 / len(rows),
         "coverage_p99": cover99 / len(rows),
-    }
-
-
-def classification_metrics(samples: list[ToolSample], predict_label: Callable[[ToolSample], str]) -> dict:
-    rows = [s for s in samples if s.labels.get("resource_class")]
-    if not rows:
-        return {}
-    correct = 0
-    counts: Counter[str] = Counter()
-    correct_by_class: Counter[str] = Counter()
-    for s in rows:
-        y = str(s.labels["resource_class"])
-        yhat = predict_label(s)
-        counts[y] += 1
-        if y == yhat:
-            correct += 1
-            correct_by_class[y] += 1
-    return {
-        "n": len(rows),
-        "accuracy": correct / len(rows),
-        "per_class_recall": {k: correct_by_class[k] / v for k, v in sorted(counts.items())},
     }
 
 

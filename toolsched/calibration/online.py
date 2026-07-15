@@ -26,7 +26,6 @@ class EwmaScaleCalibrator:
             memory_bytes=pred.memory_bytes,
             working_set_bytes=pred.working_set_bytes,
             io_bytes=pred.io_bytes,
-            resource_class=pred.resource_class,
             uncertainty=pred.uncertainty * c,
         )
 
@@ -61,7 +60,6 @@ class QuantileCoverageCalibrator:
             memory_bytes=pred.memory_bytes,
             working_set_bytes=pred.working_set_bytes,
             io_bytes=pred.io_bytes,
-            resource_class=pred.resource_class,
             uncertainty=pred.uncertainty * scale,
         )
 

@@ -33,7 +33,6 @@ def run_supervised_suite(samples: list[ToolSample]) -> dict:
             "latency_bucket": "learned: true label comes from duration_ms buckets",
             "next_tool": "learned: true label comes from the following trace tool",
             "latency_quantiles": "statistical baseline: grouped empirical quantiles, not a supervised ML model",
-            "resource_class": "rule taxonomy: no independent telemetry label yet",
         },
         "latency_bucket": {
             "models": {

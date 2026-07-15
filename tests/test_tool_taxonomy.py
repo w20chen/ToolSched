@@ -2,7 +2,6 @@ import unittest
 
 from toolsched.features.command import normalize_operation
 from toolsched.features.exec_classifier import classify_exec_tool_name
-from toolsched.features.resource_class import infer_resource_class
 
 
 class ToolTaxonomyTests(unittest.TestCase):
@@ -18,8 +17,6 @@ class ToolTaxonomyTests(unittest.TestCase):
         self.assertEqual(recursive_family, "search_text_processing")
         self.assertEqual(simple_op, "text_search_simple")
         self.assertEqual(recursive_op, "text_search_recursive")
-        self.assertEqual(infer_resource_class(simple_family, simple_op, {}), "search")
-        self.assertEqual(infer_resource_class(recursive_family, recursive_op, {}), "io_search")
 
     def test_package_family_can_contain_different_load_classes(self) -> None:
         install_op, install_family = normalize_operation(
@@ -31,8 +28,6 @@ class ToolTaxonomyTests(unittest.TestCase):
 
         self.assertEqual(install_family, "package_environment_mgmt")
         self.assertEqual(build_family, "package_environment_mgmt")
-        self.assertEqual(infer_resource_class(install_family, install_op, {}), "network_disk_io")
-        self.assertEqual(infer_resource_class(build_family, build_op, {}), "cpu_memory_mixed")
 
     def test_file_navigation_is_separate_from_file_io(self) -> None:
         list_op, list_family = normalize_operation("list_dir", {"path": "src"})
@@ -40,8 +35,6 @@ class ToolTaxonomyTests(unittest.TestCase):
 
         self.assertEqual((list_op, list_family), ("directory_list", "file_navigation"))
         self.assertEqual((read_op, read_family), ("file_read", "file_io"))
-        self.assertEqual(infer_resource_class(list_family, list_op, {}), "metadata_io")
-        self.assertEqual(infer_resource_class(read_family, read_op, {}), "file_io")
 
     def test_leading_cd_does_not_hide_the_executed_operation(self) -> None:
         script_op, _ = normalize_operation(
@@ -112,21 +105,6 @@ class ToolTaxonomyTests(unittest.TestCase):
 
         self.assertEqual(operation, "text_search_recursive")
         self.assertEqual(family, "search_text_processing")
-        self.assertEqual(infer_resource_class(family, operation, {}), "io_search")
-
-    def test_new_load_operations_have_resource_classes(self) -> None:
-        expected_classes = {
-            "archive_operation": "cpu_io_mixed",
-            "container_operation": "cpu_memory_mixed",
-            "database_query": "cpu_io_mixed",
-            "file_mutation": "file_io",
-            "system_operation": "metadata_io",
-            "shell_control": "light_control",
-        }
-
-        for operation, resource_class in expected_classes.items():
-            with self.subTest(operation=operation):
-                self.assertEqual(infer_resource_class("", operation, {}), resource_class)
 
 
 if __name__ == "__main__":

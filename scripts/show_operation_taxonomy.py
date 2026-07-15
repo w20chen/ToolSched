@@ -11,7 +11,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from toolsched.features.command import EXEC_TOOL_OPERATION, TOOL_FAMILY_BY_OPERATION, normalize_operation
 from toolsched.features.exec_classifier import classify_exec_tool_name
-from toolsched.features.resource_class import RESOURCE_CLASS_BY_OPERATION, infer_resource_class
 
 
 def main() -> None:
@@ -48,13 +47,11 @@ def parse_payload(payload_json: str | None) -> dict[str, Any]:
 def classify_call(tool: str, payload: dict[str, Any]) -> dict[str, Any]:
     classified_tool = classify_exec_tool_name(tool, payload)
     operation, family = normalize_operation(classified_tool, payload)
-    resource_class = infer_resource_class(family, operation, {})
     return {
         "input_tool": tool,
         "classified_tool": classified_tool,
         "operation": operation,
         "tool_family": family,
-        "resource_class": resource_class,
         "command": payload.get("command"),
     }
 
@@ -69,7 +66,6 @@ def operation_catalog() -> list[dict[str, Any]]:
         rows.append({
             "operation": operation,
             "tool_family": TOOL_FAMILY_BY_OPERATION[operation],
-            "resource_class": RESOURCE_CLASS_BY_OPERATION.get(operation, "unknown"),
             "exec_tool_fallbacks": sorted(exec_fallbacks.get(operation, [])),
         })
     return rows
@@ -87,11 +83,11 @@ def emit(payload: dict[str, Any], fmt: str) -> None:
 
 
 def print_catalog(rows: list[dict[str, Any]]) -> None:
-    print("operation | tool_family | resource_class | exec_tool_fallbacks")
-    print("--- | --- | --- | ---")
+    print("operation | tool_family | exec_tool_fallbacks")
+    print("--- | --- | ---")
     for row in rows:
         fallbacks = ", ".join(row["exec_tool_fallbacks"])
-        print(f"{row['operation']} | {row['tool_family']} | {row['resource_class']} | {fallbacks}")
+        print(f"{row['operation']} | {row['tool_family']} | {fallbacks}")
 
 
 def print_classification(row: dict[str, Any]) -> None:
@@ -99,7 +95,6 @@ def print_classification(row: dict[str, Any]) -> None:
     print(f"classified_tool: {row['classified_tool']}")
     print(f"operation: {row['operation']}")
     print(f"tool_family: {row['tool_family']}")
-    print(f"resource_class: {row['resource_class']}")
     if row.get("command") is not None:
         print(f"command: {row['command']}")
 

@@ -65,8 +65,6 @@ The first version includes these tasks:
   tool and recent tool history.
 - `latency_quantiles`: a statistical profile, not a supervised ML model. It
   reports grouped empirical P50/P90/P99.
-- `resource_class`: a rule-based taxonomy until independent telemetry labels
-  are available. It is a coarse load class derived from `operation`.
 - `agent_remaining_time`: a post-tool prediction task. It predicts how much
   agent wall-clock time remains after the current tool has completed, including
   later LLM time and later tool time when trace timestamps are available.
@@ -139,7 +137,7 @@ This framework deliberately avoids treating every component as ML:
   - global, step-conditioned, EWMA, and simple compositional remaining-time
     baselines.
 - Rules and policies:
-  - resource taxonomy.
+  - operation taxonomy.
 
 ## Output Schema
 
@@ -174,10 +172,6 @@ Tool taxonomy is layered:
 - `tool`: the concrete invoked tool name.
 - `operation`: a load-oriented abstraction, such as `text_search_simple`,
   `text_search_recursive`, `project_build`, or `package_install`.
-- `resource_class`: a coarse resource bucket determined by `operation`.
-  The relation is many-to-one: every operation has one resource class, while
-  multiple operations may share a class. It is retained as derived metadata
-  for profiles and reports, not as an independent model feature.
 - `tool_family`: a functional category, not a load class. Current families are
   `data_analysis_scripting`, `test_execution`, `package_environment_mgmt`,
   `search_text_processing`, `file_navigation`, `version_control`, `file_io`,

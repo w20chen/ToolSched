@@ -32,7 +32,6 @@ class GlobalQuantileModel:
             latency_p50_ms=quantile(self.values, 0.50),
             latency_p90_ms=quantile(self.values, 0.90),
             latency_p99_ms=quantile(self.values, 0.99),
-            resource_class=sample.labels.get("resource_class", "unknown"),
             uncertainty=max(0.0, quantile(self.values, 0.90) - quantile(self.values, 0.50)),
         )
 
@@ -60,16 +59,13 @@ class GroupQuantileModel:
             latency_p50_ms=quantile(values, 0.50),
             latency_p90_ms=quantile(values, 0.90),
             latency_p99_ms=quantile(values, 0.99),
-            resource_class=sample.labels.get("resource_class", "unknown"),
             uncertainty=max(0.0, quantile(values, 0.90) - quantile(values, 0.50)),
         )
 
     def _key(self, sample: ToolSample) -> tuple:
         vals = []
         for key in self.keys:
-            if key == "resource_class":
-                vals.append(sample.labels.get("resource_class", "unknown"))
-            elif key == "operation":
+            if key == "operation":
                 vals.append(sample.operation)
             elif key == "family":
                 vals.append(sample.tool_family)
@@ -100,7 +96,6 @@ class EwmaToolModel:
             latency_p50_ms=p50,
             latency_p90_ms=p50 * 1.5,
             latency_p99_ms=p50 * 2.0,
-            resource_class=sample.labels.get("resource_class", "unknown"),
             uncertainty=p50 * 0.5,
         )
 

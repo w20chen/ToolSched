@@ -77,7 +77,6 @@ class ToolCostDistribution:
     memory_bytes: float = 0.0
     working_set_bytes: float = 0.0
     io_bytes: float = 0.0
-    resource_class: str = "unknown"
     uncertainty: float = 0.0
 
 

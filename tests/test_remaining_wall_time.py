@@ -17,7 +17,6 @@ def sample(idx: int, start: str, end: str, duration_ms: float) -> ToolSample:
         duration_ms=duration_ms,
         end_timestamp=end,
         features={"call_index": idx},
-        labels={"resource_class": "cpu"},
     )
 
 
