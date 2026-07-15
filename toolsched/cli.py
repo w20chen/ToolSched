@@ -8,25 +8,12 @@ from .data.discovery import summarize_datasets
 from .data.loader import load_datasets
 from .episodes import build_episodes
 from .evaluation.metrics import next_tool_metrics, regression_metrics
-from .evaluation.ml_suite import run_supervised_suite
 from .evaluation.online import replay_calibration
 from .evaluation.profile import tool_profiles
 from .evaluation.remaining import remaining_by_progress, remaining_time_metrics
 from .evaluation.split import split_by_case
 from .io import read_samples, write_json, write_samples
 from .models.baselines import EwmaToolModel, GlobalQuantileModel, GroupQuantileModel, NextToolMarkovModel
-from .models.remaining import (
-    BinnedRemainingClassifier,
-    CompositionalRemaining,
-    EwmaRemainingByFamily,
-    GlobalRemainingQuantile,
-    LinearQuantileRemaining,
-    LogSpaceRemaining,
-    ProgressConditionedRemaining,
-    RandomForestRemainingRegressor,
-    StepConditionedRemaining,
-    StepsDecomposedRemaining,
-)
 
 
 def main() -> None:
@@ -72,7 +59,7 @@ def main() -> None:
 
     # Resolve --datasets and --include-dataset from --config when not
     # provided on the command line.
-    if args.config:
+    if getattr(args, "config", None):
         cfg = load_config(args.config)
         if args.cmd in ("inspect", "build"):
             if args.datasets is None:
@@ -111,6 +98,8 @@ def main() -> None:
         }
         emit(payload, args.out)
     elif args.cmd == "evaluate-supervised":
+        from .evaluation.ml_suite import run_supervised_suite
+
         samples = read_samples(Path(args.samples))
         payload = run_supervised_suite(samples)
         emit(payload, args.out)
@@ -125,6 +114,14 @@ def main() -> None:
         payload = replay_calibration(test, model.predict)
         emit(payload, args.out)
     elif args.cmd == "evaluate-remaining":
+        from .models.remaining import (
+            CompositionalRemaining,
+            EwmaRemainingByFamily,
+            GlobalRemainingQuantile,
+            RandomForestRemainingRegressor,
+            StepConditionedRemaining,
+        )
+
         samples = read_samples(Path(args.samples))
         train_samples, test_samples = split_by_case(samples)
         train_episodes = build_episodes(train_samples)
