@@ -303,6 +303,10 @@ def _is_recursive_search(text: str, payload: dict[str, Any]) -> bool:
     recursive_flags = (" -r", " -R", " --recursive", "grep -r", "grep -R")
     if any(flag in text for flag in recursive_flags):
         return True
+    if _has_command(text, "find") and _has_command_any(text, TEXT_SEARCH_WORDS):
+        return True
+    if _has_command(text, "xargs") and _has_command_any(text, TEXT_SEARCH_WORDS):
+        return True
     try:
         argv = shlex.split(text, posix=False)
     except ValueError:

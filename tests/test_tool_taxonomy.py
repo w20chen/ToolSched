@@ -104,6 +104,16 @@ class ToolTaxonomyTests(unittest.TestCase):
                 self.assertEqual(operation, expected_operation)
                 self.assertNotEqual(family, "unknown")
 
+    def test_find_piped_to_grep_is_recursive_search_load(self) -> None:
+        operation, family = normalize_operation(
+            "exec-grep",
+            {"command": "find src -type f | xargs grep TODO"},
+        )
+
+        self.assertEqual(operation, "text_search_recursive")
+        self.assertEqual(family, "search_text_processing")
+        self.assertEqual(infer_resource_class(family, operation, {}), "io_search")
+
     def test_new_load_operations_have_resource_classes(self) -> None:
         expected_classes = {
             "archive_operation": "cpu_io_mixed",
