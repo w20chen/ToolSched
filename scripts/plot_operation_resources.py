@@ -118,11 +118,14 @@ def collect_rows(root: Path, max_attempts: int | None) -> tuple[list[dict[str, A
         resources = load_resource_samples(resources_path)
         dataset = dataset_name(root, attempt_dir)
 
-        # Compute effective thresholds once per dataset.
-        if dataset not in dataset_intervals:
-            interval = sampling_interval(resources)
-            dataset_intervals[dataset] = interval if interval else 0.0
-        interval = dataset_intervals[dataset]
+        # Cache only valid intervals so an empty/bad first attempt does not
+        # permanently force default thresholds for the whole dataset.
+        interval = dataset_intervals.get(dataset, 0.0)
+        if interval <= 0:
+            observed_interval = sampling_interval(resources)
+            if observed_interval is not None and observed_interval > 0:
+                dataset_intervals[dataset] = observed_interval
+                interval = observed_interval
         eff_max_age = max(CPU_BASELINE_MAX_AGE_S, interval * _MIN_SAMPLING_MULTIPLIER)
         eff_max_gap = max(COUNTER_INTERPOLATION_MAX_GAP_S, interval * _MIN_SAMPLING_MULTIPLIER)
 
@@ -574,7 +577,10 @@ def sampling_interval(resources: list[ResourceSample]) -> float | None:
     epochs = [r.epoch for r in resources if r.epoch is not None]
     if len(epochs) < 2:
         return None
-    gaps = sorted(epochs[i + 1] - epochs[i] for i in range(len(epochs) - 1))
+    epochs.sort()
+    gaps = sorted(epochs[i + 1] - epochs[i] for i in range(len(epochs) - 1) if epochs[i + 1] > epochs[i])
+    if not gaps:
+        return None
     return gaps[len(gaps) // 2]
 
 

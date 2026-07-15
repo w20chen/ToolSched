@@ -29,18 +29,17 @@ def discover_attempts(dataset_root: Path, limit: int | None = None) -> list[Atte
 def estimate_sampling_interval_s(dataset_dir: Path, max_files: int = 10) -> float | None:
     """Estimate the median resource sampling interval for a dataset.
 
-    Samples up to *max_files* ``resources.json`` files in the dataset
-    directory, computes the median gap between consecutive ``epoch`` / 
+    Samples up to *max_files* usable ``resources.json`` files in the dataset
+    directory, computes the median gap between consecutive ``epoch`` /
     ``timestamp`` values, and returns the result in seconds.
 
     Returns ``None`` if no usable resource samples are found.
     """
     all_gaps: list[float] = []
-    checked = 0
+    usable_files = 0
     for res_path in sorted(dataset_dir.rglob("resources.json")):
-        if checked >= max_files:
+        if usable_files >= max_files:
             break
-        checked += 1
         try:
             payload = json.loads(res_path.read_text(encoding="utf-8"))
         except Exception:
@@ -66,8 +65,13 @@ def estimate_sampling_interval_s(dataset_dir: Path, max_files: int = 10) -> floa
                 epochs.append(e)
         if len(epochs) < 2:
             continue
+        epochs.sort()
         gaps = [epochs[i + 1] - epochs[i] for i in range(len(epochs) - 1)]
+        gaps = [gap for gap in gaps if gap > 0]
+        if not gaps:
+            continue
         all_gaps.extend(gaps)
+        usable_files += 1
     if not all_gaps:
         return None
     all_gaps.sort()
