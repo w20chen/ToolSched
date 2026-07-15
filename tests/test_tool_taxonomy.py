@@ -42,6 +42,16 @@ class ToolTaxonomyTests(unittest.TestCase):
         self.assertEqual(infer_resource_class(list_family, list_op, {}), "metadata_io")
         self.assertEqual(infer_resource_class(read_family, read_op, {}), "file_io")
 
+    def test_leading_cd_does_not_hide_the_executed_operation(self) -> None:
+        script_op, _ = normalize_operation(
+            "exec",
+            {"command": "cd /testbed && python -c \"print('ok')\""},
+        )
+        directory_op, _ = normalize_operation("exec", {"command": "cd /testbed && pwd"})
+
+        self.assertEqual(script_op, "data_script")
+        self.assertEqual(directory_op, "working_directory")
+
 
 if __name__ == "__main__":
     unittest.main()

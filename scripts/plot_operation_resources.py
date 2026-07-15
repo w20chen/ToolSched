@@ -21,11 +21,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from toolsched.features.command import extract_command_features, normalize_operation
 
 
+MEMORY_BASELINE_MAX_AGE_S = 2.0
+CPU_BASELINE_MAX_AGE_S = 2.0
+COUNTER_INTERPOLATION_MAX_GAP_S = 2.0
+DEFAULT_MIN_OPERATION_P50_DURATION_MS = 500.0
+
+
 @dataclass
 class ResourceSample:
     epoch: float
     cpu_percent: float | None
-    mem_mib: float | None
+    mem_bytes: float | None
     disk_bytes: float | None
     net_bytes: float | None
 
@@ -35,7 +41,23 @@ def main() -> None:
     parser.add_argument("--datasets", required=True)
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--max-attempts", type=int)
-    parser.add_argument("--top-operations", type=int, default=18)
+    parser.add_argument(
+        "--top-operations",
+        type=int,
+        help=(
+            "Optionally limit CPU/memory/network/disk panels to the most common "
+            "eligible operations. The duration panel always shows all operations."
+        ),
+    )
+    parser.add_argument(
+        "--min-operation-p50-duration-ms",
+        type=float,
+        default=DEFAULT_MIN_OPERATION_P50_DURATION_MS,
+        help=(
+            "Exclude operations with duration P50 below this threshold from "
+            "CPU/memory/network/disk boxplots. Duration is always plotted."
+        ),
+    )
     args = parser.parse_args()
 
     root = Path(args.datasets)
@@ -44,11 +66,19 @@ def main() -> None:
 
     rows = collect_rows(root, args.max_attempts)
     write_rows(out_dir / "operation_resource_rows.csv", rows)
-    write_summary(out_dir / "operation_resource_summary.csv", rows)
-    plot_boxplots(out_dir / "operation_resource_boxplots.png", rows, args.top_operations)
+    summary_rows = summarize_rows(rows, args.min_operation_p50_duration_ms)
+    write_summary(out_dir / "operation_resource_summary.csv", summary_rows)
+    plot_boxplots(
+        out_dir / "operation_resource_boxplots.png",
+        rows,
+        summary_rows,
+        args.top_operations,
+        args.min_operation_p50_duration_ms,
+    )
     print(json.dumps({
         "rows": len(rows),
         "operations": len({row["operation"] for row in rows}),
+        "boxplot_min_operation_p50_duration_ms": args.min_operation_p50_duration_ms,
         "out_dir": str(out_dir),
         "boxplot": str(out_dir / "operation_resource_boxplots.png"),
         "rows_csv": str(out_dir / "operation_resource_rows.csv"),
@@ -116,8 +146,13 @@ def row_for_call(
         "tool_family": family,
         "duration_ms": duration_ms,
         "cpu_percent_mean": stats["cpu_percent_mean"],
-        "memory_mib_mean": stats["memory_mib_mean"],
-        "memory_mib_max": stats["memory_mib_max"],
+        "cpu_percent_baseline": stats["cpu_percent_baseline"],
+        "cpu_percent_delta_mean": stats["cpu_percent_delta_mean"],
+        "ambient_memory_bytes_mean": stats["ambient_memory_bytes_mean"],
+        "ambient_memory_bytes_max": stats["ambient_memory_bytes_max"],
+        "memory_bytes_baseline": stats["memory_bytes_baseline"],
+        "memory_bytes_delta_mean": stats["memory_bytes_delta_mean"],
+        "memory_bytes_delta_max": stats["memory_bytes_delta_max"],
         "network_io_bytes": stats["network_io_bytes"],
         "disk_io_bytes": stats["disk_io_bytes"],
         "resource_sample_count": stats["resource_sample_count"],
@@ -145,16 +180,20 @@ def load_resource_samples(path: Path) -> list[ResourceSample]:
             epoch = parse_epoch(sample.get("timestamp"))
         if epoch is None:
             continue
-        disk_read = safe_float(sample.get("disk_read_bytes")) or 0.0
-        disk_write = safe_float(sample.get("disk_write_bytes")) or 0.0
-        net_rx = safe_float(sample.get("net_rx_bytes")) or 0.0
-        net_tx = safe_float(sample.get("net_tx_bytes")) or 0.0
+        disk_bytes = sum_optional_counters(
+            sample.get("disk_read_bytes"),
+            sample.get("disk_write_bytes"),
+        )
+        net_bytes = sum_optional_counters(
+            sample.get("net_rx_bytes"),
+            sample.get("net_tx_bytes"),
+        )
         out.append(ResourceSample(
             epoch=epoch,
             cpu_percent=safe_percent(sample.get("cpu_percent")),
-            mem_mib=parse_mem_mib(sample.get("mem_usage")),
-            disk_bytes=disk_read + disk_write,
-            net_bytes=net_rx + net_tx,
+            mem_bytes=parse_memory_bytes(sample.get("mem_usage")),
+            disk_bytes=disk_bytes,
+            net_bytes=net_bytes,
         ))
     out.sort(key=lambda row: row.epoch)
     return out
@@ -163,8 +202,13 @@ def load_resource_samples(path: Path) -> list[ResourceSample]:
 def resource_stats(resources: list[ResourceSample], start: float | None, end: float | None) -> dict[str, Any]:
     empty = {
         "cpu_percent_mean": None,
-        "memory_mib_mean": None,
-        "memory_mib_max": None,
+        "cpu_percent_baseline": None,
+        "cpu_percent_delta_mean": None,
+        "ambient_memory_bytes_mean": None,
+        "ambient_memory_bytes_max": None,
+        "memory_bytes_baseline": None,
+        "memory_bytes_delta_mean": None,
+        "memory_bytes_delta_max": None,
         "network_io_bytes": None,
         "disk_io_bytes": None,
         "resource_sample_count": 0,
@@ -177,32 +221,57 @@ def resource_stats(resources: list[ResourceSample], start: float | None, end: fl
         end = start + 0.001
 
     in_window = [row for row in resources if start <= row.epoch <= end]
-    if not in_window:
-        mid = (start + end) / 2.0
-        nearest = min(resources, key=lambda row: abs(row.epoch - mid))
-        if abs(nearest.epoch - mid) <= 1.0:
-            in_window = [nearest]
-
     cpu_values = [row.cpu_percent for row in in_window if row.cpu_percent is not None]
-    mem_values = [row.mem_mib for row in in_window if row.mem_mib is not None]
+    mem_values = [row.mem_bytes for row in in_window if row.mem_bytes is not None]
+    cpu_mean = mean(cpu_values)
+    cpu_baseline = value_at_or_before(resources, start, "cpu_percent", CPU_BASELINE_MAX_AGE_S)
+    mem_mean = mean(mem_values)
+    mem_max = max(mem_values) if mem_values else None
+    mem_baseline = value_at_or_before(resources, start, "mem_bytes", MEMORY_BASELINE_MAX_AGE_S)
     disk_delta = counter_delta(resources, start, end, "disk_bytes")
     net_delta = counter_delta(resources, start, end, "net_bytes")
     return {
-        "cpu_percent_mean": mean(cpu_values),
-        "memory_mib_mean": mean(mem_values),
-        "memory_mib_max": max(mem_values) if mem_values else None,
+        "cpu_percent_mean": cpu_mean,
+        "cpu_percent_baseline": cpu_baseline,
+        "cpu_percent_delta_mean": non_negative_delta(cpu_mean, cpu_baseline),
+        "ambient_memory_bytes_mean": mem_mean,
+        "ambient_memory_bytes_max": mem_max,
+        "memory_bytes_baseline": mem_baseline,
+        "memory_bytes_delta_mean": non_negative_delta(mem_mean, mem_baseline),
+        "memory_bytes_delta_max": non_negative_delta(mem_max, mem_baseline),
         "network_io_bytes": net_delta,
         "disk_io_bytes": disk_delta,
         "resource_sample_count": len(in_window),
     }
 
 
+def value_at_or_before(resources: list[ResourceSample], t: float, attr: str, max_age_s: float) -> float | None:
+    previous = None
+    for row in resources:
+        value = getattr(row, attr)
+        if value is None:
+            continue
+        if row.epoch <= t:
+            previous = row
+        else:
+            break
+    if previous is None or t - previous.epoch > max_age_s:
+        return None
+    return getattr(previous, attr)
+
+
+def non_negative_delta(value: float | None, baseline: float | None) -> float | None:
+    if value is None or baseline is None:
+        return None
+    return max(0.0, value - baseline)
+
+
 def counter_delta(resources: list[ResourceSample], start: float, end: float, attr: str) -> float | None:
     before = interpolated_counter(resources, start, attr)
     after = interpolated_counter(resources, end, attr)
-    if before is None or after is None:
+    if before is None or after is None or after < before:
         return None
-    return max(0.0, after - before)
+    return after - before
 
 
 def interpolated_counter(resources: list[ResourceSample], t: float, attr: str) -> float | None:
@@ -217,16 +286,16 @@ def interpolated_counter(resources: list[ResourceSample], t: float, attr: str) -
         if row.epoch >= t:
             following = row
             break
-    if previous is None and following is None:
+    if previous is None or following is None:
         return None
-    if previous is None:
-        return getattr(following, attr)
-    if following is None:
-        return getattr(previous, attr)
     prev_value = getattr(previous, attr)
     next_value = getattr(following, attr)
     if following.epoch == previous.epoch:
         return prev_value
+    if following.epoch - previous.epoch > COUNTER_INTERPOLATION_MAX_GAP_S:
+        return None
+    if next_value < prev_value:
+        return None
     frac = (t - previous.epoch) / (following.epoch - previous.epoch)
     return prev_value + frac * (next_value - prev_value)
 
@@ -234,8 +303,11 @@ def interpolated_counter(resources: list[ResourceSample], t: float, attr: str) -
 def write_rows(path: Path, rows: list[dict[str, Any]]) -> None:
     columns = [
         "dataset", "attempt_dir", "call_index", "tool", "operation", "tool_family",
-        "duration_ms", "cpu_percent_mean", "memory_mib_mean", "memory_mib_max",
-        "network_io_bytes", "disk_io_bytes", "resource_sample_count",
+        "duration_ms", "cpu_percent_mean", "cpu_percent_baseline", "cpu_percent_delta_mean",
+        "ambient_memory_bytes_mean", "ambient_memory_bytes_max", "memory_bytes_baseline",
+        "memory_bytes_delta_mean", "memory_bytes_delta_max",
+        "network_io_bytes", "disk_io_bytes",
+        "resource_sample_count",
         "has_pipe", "has_recursive_hint",
     ]
     with path.open("w", newline="", encoding="utf-8") as handle:
@@ -245,68 +317,183 @@ def write_rows(path: Path, rows: list[dict[str, Any]]) -> None:
             writer.writerow(row)
 
 
-def write_summary(path: Path, rows: list[dict[str, Any]]) -> None:
+def summarize_rows(rows: list[dict[str, Any]], min_operation_p50_duration_ms: float) -> list[dict[str, Any]]:
     metrics = [
-        "duration_ms", "cpu_percent_mean", "memory_mib_mean",
-        "memory_mib_max", "network_io_bytes", "disk_io_bytes",
+        "duration_ms",
+        "cpu_percent_mean",
+        "cpu_percent_delta_mean",
+        "ambient_memory_bytes_mean",
+        "ambient_memory_bytes_max",
+        "memory_bytes_delta_mean",
+        "memory_bytes_delta_max",
+        "network_io_bytes",
+        "disk_io_bytes",
     ]
-    columns = ["operation", "n"] + [f"{metric}_{stat}" for metric in metrics for stat in ("p50", "p90", "p99", "mean")]
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         grouped.setdefault(str(row["operation"]), []).append(row)
+    summary_rows = []
+    for operation, items in sorted(grouped.items()):
+        out: dict[str, Any] = {"operation": operation, "n": len(items)}
+        for metric in metrics:
+            values = finite_values(item.get(metric) for item in items)
+            out[f"{metric}_n"] = len(values)
+            out[f"{metric}_p50"] = quantile(values, 0.50)
+            out[f"{metric}_p90"] = quantile(values, 0.90)
+            out[f"{metric}_p99"] = quantile(values, 0.99)
+            out[f"{metric}_mean"] = mean(values)
+        duration_p50 = safe_float(out.get("duration_ms_p50"))
+        out["eligible_for_resource_boxplot"] = bool(
+            duration_p50 is not None and duration_p50 >= min_operation_p50_duration_ms
+        )
+        summary_rows.append(out)
+    return summary_rows
+
+
+def write_summary(path: Path, summary_rows: list[dict[str, Any]]) -> None:
+    metrics = [
+        "duration_ms",
+        "cpu_percent_mean",
+        "cpu_percent_delta_mean",
+        "ambient_memory_bytes_mean",
+        "ambient_memory_bytes_max",
+        "memory_bytes_delta_mean",
+        "memory_bytes_delta_max",
+        "network_io_bytes",
+        "disk_io_bytes",
+    ]
+    columns = ["operation", "n", "eligible_for_resource_boxplot"]
+    columns += [f"{metric}_{stat}" for metric in metrics for stat in ("n", "p50", "p90", "p99", "mean")]
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=columns)
         writer.writeheader()
-        for operation, items in sorted(grouped.items()):
-            out: dict[str, Any] = {"operation": operation, "n": len(items)}
-            for metric in metrics:
-                values = [safe_float(item.get(metric)) for item in items]
-                values = [value for value in values if value is not None and math.isfinite(value)]
-                out[f"{metric}_p50"] = quantile(values, 0.50)
-                out[f"{metric}_p90"] = quantile(values, 0.90)
-                out[f"{metric}_p99"] = quantile(values, 0.99)
-                out[f"{metric}_mean"] = mean(values)
+        for out in summary_rows:
             writer.writerow(out)
 
 
-def plot_boxplots(path: Path, rows: list[dict[str, Any]], top_n: int) -> None:
+def plot_boxplots(
+    path: Path,
+    rows: list[dict[str, Any]],
+    summary_rows: list[dict[str, Any]],
+    top_n: int,
+    min_operation_p50_duration_ms: float,
+) -> None:
     counts: dict[str, int] = {}
     for row in rows:
         counts[str(row["operation"])] = counts.get(str(row["operation"]), 0) + 1
-    operations = [op for op, _ in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:top_n]]
+    eligible = {
+        str(row["operation"])
+        for row in summary_rows
+        if row.get("eligible_for_resource_boxplot") is True
+    }
+    duration_operations = [
+        op
+        for op, _ in sorted(counts.items(), key=lambda item: item[1], reverse=True)
+    ]
+    resource_operations = [
+        op
+        for op, _ in sorted(counts.items(), key=lambda item: item[1], reverse=True)
+        if op in eligible
+    ]
+    if top_n is not None:
+        resource_operations = resource_operations[:top_n]
     metrics = [
-        ("duration_ms", "Tool duration (ms)", True),
-        ("cpu_percent_mean", "CPU percent mean", False),
-        ("memory_mib_mean", "Memory footprint mean (MiB)", False),
-        ("network_io_bytes", "Network I/O delta (bytes)", True),
-        ("disk_io_bytes", "Disk I/O delta (bytes)", True),
+        ("duration_ms", "Tool duration (ms)", True, False, duration_operations),
+        ("cpu_percent_delta_mean", "CPU mean excess above pre-call baseline (percentage points)", False, False, resource_operations),
+        ("memory_bytes_delta_max", "Memory peak excess above pre-call baseline (bytes)", True, False, resource_operations),
+        ("network_io_bytes", "Estimated network counter delta: RX + TX (bytes)", True, False, resource_operations),
+        ("disk_io_bytes", "Estimated disk counter delta: read + write (bytes)", True, False, resource_operations),
     ]
 
-    fig, axes = plt.subplots(len(metrics), 1, figsize=(max(12, len(operations) * 0.75), 18), constrained_layout=True)
+    plot_width = max(12, max(len(duration_operations), len(resource_operations)) * 0.75)
+    fig, axes = plt.subplots(len(metrics), 1, figsize=(plot_width, 18), constrained_layout=True)
     if len(metrics) == 1:
         axes = [axes]
-    for ax, (metric, title, log_scale) in zip(axes, metrics):
+    for index, (ax, (metric, title, log_scale, show_fliers, operations)) in enumerate(zip(axes, metrics)):
         data = []
         labels = []
-        for operation in operations:
-            values = [
-                safe_float(row.get(metric))
-                for row in rows
-                if row["operation"] == operation
-            ]
-            values = [value for value in values if value is not None and math.isfinite(value)]
+        positions = []
+        missing_positions = []
+        for position, operation in enumerate(operations, start=1):
+            values = finite_values(row.get(metric) for row in rows if row["operation"] == operation)
             if log_scale:
                 values = [math.log10(value + 1.0) for value in values]
+            labels.append(f"{operation}\n(n={counts[operation]}, m={len(values)})")
             if values:
                 data.append(values)
-                labels.append(f"{operation}\n(n={counts[operation]})")
-        ax.boxplot(data, tick_labels=labels, showfliers=False, patch_artist=True)
-        ax.set_title(title + (" [log10(x+1)]" if log_scale else ""))
+                positions.append(position)
+            else:
+                missing_positions.append(position)
+        if not data:
+            ax.set_axis_off()
+            continue
+        ax.boxplot(
+            data,
+            positions=positions,
+            widths=0.5,
+            showfliers=show_fliers,
+            flierprops={"marker": ".", "markersize": 2, "alpha": 0.25},
+            patch_artist=True,
+        )
+        ax.set_xticks(range(1, len(operations) + 1), labels=labels)
+        for position in missing_positions:
+            ax.text(
+                position,
+                0.03,
+                "NA",
+                ha="center",
+                va="bottom",
+                transform=ax.get_xaxis_transform(),
+                fontsize=8,
+            )
+        if log_scale:
+            set_readable_log_ticks(ax, metric)
+        suffix = " (log scale)" if log_scale else ""
+        filter_note = "" if index == 0 else f"; operation P50 duration >= {min_operation_p50_duration_ms:g} ms"
+        ax.set_title(title + suffix + filter_note)
         ax.tick_params(axis="x", labelrotation=45)
         ax.grid(axis="y", alpha=0.25)
-    fig.suptitle("Operation-level tool time and resource distributions", fontsize=14)
+    fig.suptitle(
+        "Environment telemetry attributed to exclusive tool windows.\n"
+        "Duration: all operations. Resources: operation P50 duration "
+        f">= {min_operation_p50_duration_ms:g} ms. "
+        "n=all calls; m=measured calls.",
+        fontsize=12,
+    )
     fig.savefig(path, dpi=180)
     plt.close(fig)
+
+
+def set_readable_log_ticks(ax: Any, metric: str) -> None:
+    if metric == "duration_ms":
+        ticks = [
+            (0.0, "0 ms"),
+            (10.0, "10 ms"),
+            (100.0, "100 ms"),
+            (1_000.0, "1 s"),
+            (10_000.0, "10 s"),
+            (100_000.0, "100 s"),
+            (1_000_000.0, "1000 s"),
+        ]
+    else:
+        ticks = [
+            (0.0, "0 B"),
+            (1_000.0, "1 KB"),
+            (1_000_000.0, "1 MB"),
+            (1_000_000_000.0, "1 GB"),
+            (1_000_000_000_000.0, "1 TB"),
+        ]
+
+    lower, upper = ax.get_ylim()
+    visible = [
+        (math.log10(value + 1.0), label)
+        for value, label in ticks
+        if lower <= math.log10(value + 1.0) <= upper
+    ]
+    ax.set_yticks(
+        [position for position, _ in visible],
+        labels=[label for _, label in visible],
+    )
 
 
 def dataset_name(root: Path, attempt_dir: Path) -> str:
@@ -328,23 +515,28 @@ def parse_epoch(value: Any) -> float | None:
     return dt.timestamp()
 
 
-def parse_mem_mib(value: Any) -> float | None:
+def parse_memory_bytes(value: Any) -> float | None:
     if value is None:
         return None
-    text = str(value).strip()
+    # Docker-style telemetry commonly reports "used / limit". Resource
+    # attribution needs the used value, not the full compound string.
+    text = str(value).split("/", 1)[0].strip()
     match = re_match_mem(text)
     if match is None:
-        return safe_float(text)
+        number = safe_float(text)
+        return None if number is None else number * 1024 * 1024
     number, unit = match
     factor = {
-        "b": 1 / (1024 * 1024),
-        "kib": 1 / 1024,
-        "kb": 1 / 1024,
-        "mib": 1.0,
-        "mb": 1.0,
-        "gib": 1024.0,
-        "gb": 1024.0,
-    }.get(unit.lower(), 1.0)
+        "b": 1.0,
+        "kb": 1000.0,
+        "kib": 1024.0,
+        "mb": 1000.0 ** 2,
+        "mib": 1024.0 ** 2,
+        "gb": 1000.0 ** 3,
+        "gib": 1024.0 ** 3,
+    }.get(unit.lower())
+    if factor is None:
+        return None
     return number * factor
 
 
@@ -371,6 +563,17 @@ def safe_float(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None
+
+
+def finite_values(values: Any) -> list[float]:
+    out = [safe_float(value) for value in values]
+    return [value for value in out if value is not None and math.isfinite(value)]
+
+
+def sum_optional_counters(*values: Any) -> float | None:
+    parsed = [safe_float(value) for value in values]
+    present = [value for value in parsed if value is not None]
+    return sum(present) if present else None
 
 
 def mean(values: list[float]) -> float | None:

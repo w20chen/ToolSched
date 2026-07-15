@@ -118,7 +118,7 @@ def normalize_operation(tool: str, payload: dict[str, Any]) -> tuple[str, str]:
         return _pair("file_read")
     if _has_command(text, "ls"):
         return _pair("directory_list")
-    if _has_command(text, "pwd") or _has_command(text, "cd"):
+    if _is_working_directory_only(text):
         return _pair("working_directory")
     if "curl" in text or "wget" in text:
         return _pair("download")
@@ -207,6 +207,19 @@ def _has_command(text: str, command: str) -> bool:
 
 def _has_command_any(text: str, commands: tuple[str, ...]) -> bool:
     return any(_has_command(text, command) for command in commands)
+
+
+def _is_working_directory_only(text: str) -> bool:
+    """Return true only when every shell segment is a cd/pwd command.
+
+    A leading ``cd /work &&`` is common setup for expensive commands and must
+    not turn the whole invocation into a working-directory operation.
+    """
+
+    segments = [segment.strip() for segment in re.split(r"&&|\|\||[;|]", text) if segment.strip()]
+    if not segments:
+        return False
+    return all(segment.split(maxsplit=1)[0].lower() in {"cd", "pwd"} for segment in segments)
 
 
 def _looks_like_file_target(value: str) -> bool:
