@@ -25,6 +25,12 @@ MEMORY_BASELINE_MAX_AGE_S = 2.0
 CPU_BASELINE_MAX_AGE_S = 2.0
 COUNTER_INTERPOLATION_MAX_GAP_S = 2.0
 DEFAULT_MIN_OPERATION_P50_DURATION_MS = 500.0
+RESOURCE_PLOT_METRICS = (
+    "cpu_percent_delta_mean",
+    "memory_bytes_delta_max",
+    "network_io_bytes_per_s",
+    "disk_io_bytes_per_s",
+)
 
 
 @dataclass
@@ -137,6 +143,8 @@ def row_for_call(
         duration_ms = max(0.0, (end - start) * 1000.0)
 
     stats = resource_stats(resources, start, end)
+    network_io_bytes_per_s = bytes_per_second(stats["network_io_bytes"], duration_ms)
+    disk_io_bytes_per_s = bytes_per_second(stats["disk_io_bytes"], duration_ms)
     return {
         "dataset": dataset,
         "attempt_dir": str(attempt_dir),
@@ -155,6 +163,8 @@ def row_for_call(
         "memory_bytes_delta_max": stats["memory_bytes_delta_max"],
         "network_io_bytes": stats["network_io_bytes"],
         "disk_io_bytes": stats["disk_io_bytes"],
+        "network_io_bytes_per_s": network_io_bytes_per_s,
+        "disk_io_bytes_per_s": disk_io_bytes_per_s,
         "resource_sample_count": stats["resource_sample_count"],
         "has_pipe": features.get("has_pipe"),
         "has_recursive_hint": features.get("has_recursive_hint"),
@@ -266,6 +276,12 @@ def non_negative_delta(value: float | None, baseline: float | None) -> float | N
     return max(0.0, value - baseline)
 
 
+def bytes_per_second(delta_bytes: float | None, duration_ms: float | None) -> float | None:
+    if delta_bytes is None or duration_ms is None or duration_ms <= 0:
+        return None
+    return delta_bytes / (duration_ms / 1000.0)
+
+
 def counter_delta(resources: list[ResourceSample], start: float, end: float, attr: str) -> float | None:
     before = interpolated_counter(resources, start, attr)
     after = interpolated_counter(resources, end, attr)
@@ -307,6 +323,7 @@ def write_rows(path: Path, rows: list[dict[str, Any]]) -> None:
         "ambient_memory_bytes_mean", "ambient_memory_bytes_max", "memory_bytes_baseline",
         "memory_bytes_delta_mean", "memory_bytes_delta_max",
         "network_io_bytes", "disk_io_bytes",
+        "network_io_bytes_per_s", "disk_io_bytes_per_s",
         "resource_sample_count",
         "has_pipe", "has_recursive_hint",
     ]
@@ -328,13 +345,19 @@ def summarize_rows(rows: list[dict[str, Any]], min_operation_p50_duration_ms: fl
         "memory_bytes_delta_max",
         "network_io_bytes",
         "disk_io_bytes",
+        "network_io_bytes_per_s",
+        "disk_io_bytes_per_s",
     ]
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         grouped.setdefault(str(row["operation"]), []).append(row)
     summary_rows = []
     for operation, items in sorted(grouped.items()):
-        out: dict[str, Any] = {"operation": operation, "n": len(items)}
+        out: dict[str, Any] = {
+            "operation": operation,
+            "n": len(items),
+            "resource_complete_n": sum(has_complete_resource_metrics(item) for item in items),
+        }
         for metric in metrics:
             values = finite_values(item.get(metric) for item in items)
             out[f"{metric}_n"] = len(values)
@@ -361,8 +384,10 @@ def write_summary(path: Path, summary_rows: list[dict[str, Any]]) -> None:
         "memory_bytes_delta_max",
         "network_io_bytes",
         "disk_io_bytes",
+        "network_io_bytes_per_s",
+        "disk_io_bytes_per_s",
     ]
-    columns = ["operation", "n", "eligible_for_resource_boxplot"]
+    columns = ["operation", "n", "resource_complete_n", "eligible_for_resource_boxplot"]
     columns += [f"{metric}_{stat}" for metric in metrics for stat in ("n", "p50", "p90", "p99", "mean")]
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=columns)
@@ -397,12 +422,13 @@ def plot_boxplots(
     ]
     if top_n is not None:
         resource_operations = resource_operations[:top_n]
+    complete_resource_rows = [row for row in rows if has_complete_resource_metrics(row)]
     metrics = [
         ("duration_ms", "Tool duration (ms)", True, False, duration_operations),
         ("cpu_percent_delta_mean", "CPU mean excess above pre-call baseline (percentage points)", False, False, resource_operations),
         ("memory_bytes_delta_max", "Memory peak excess above pre-call baseline (bytes)", True, False, resource_operations),
-        ("network_io_bytes", "Estimated network counter delta: RX + TX (bytes)", True, False, resource_operations),
-        ("disk_io_bytes", "Estimated disk counter delta: read + write (bytes)", True, False, resource_operations),
+        ("network_io_bytes_per_s", "Network IO: RX + TX (byte/s)", True, False, resource_operations),
+        ("disk_io_bytes_per_s", "Disk IO: read + write (byte/s)", True, False, resource_operations),
     ]
 
     plot_width = max(12, max(len(duration_operations), len(resource_operations)) * 0.75)
@@ -410,12 +436,17 @@ def plot_boxplots(
     if len(metrics) == 1:
         axes = [axes]
     for index, (ax, (metric, title, log_scale, show_fliers, operations)) in enumerate(zip(axes, metrics)):
+        metric_rows = rows if index == 0 else complete_resource_rows
         data = []
         labels = []
         positions = []
         missing_positions = []
         for position, operation in enumerate(operations, start=1):
-            values = finite_values(row.get(metric) for row in rows if row["operation"] == operation)
+            values = finite_values(
+                row.get(metric)
+                for row in metric_rows
+                if row["operation"] == operation
+            )
             if log_scale:
                 values = [math.log10(value + 1.0) for value in values]
             labels.append(f"{operation}\n(n={counts[operation]}, m={len(values)})")
@@ -457,7 +488,7 @@ def plot_boxplots(
         "Environment telemetry attributed to exclusive tool windows.\n"
         "Duration: all operations. Resources: operation P50 duration "
         f">= {min_operation_p50_duration_ms:g} ms. "
-        "n=all calls; m=measured calls.",
+        "n=all calls; m=calls with all four resource metrics.",
         fontsize=12,
     )
     fig.savefig(path, dpi=180)
@@ -474,6 +505,14 @@ def set_readable_log_ticks(ax: Any, metric: str) -> None:
             (10_000.0, "10 s"),
             (100_000.0, "100 s"),
             (1_000_000.0, "1000 s"),
+        ]
+    elif metric.endswith("_per_s"):
+        ticks = [
+            (0.0, "0 B/s"),
+            (1_000.0, "1 KB/s"),
+            (1_000_000.0, "1 MB/s"),
+            (1_000_000_000.0, "1 GB/s"),
+            (1_000_000_000_000.0, "1 TB/s"),
         ]
     else:
         ticks = [
@@ -568,6 +607,10 @@ def safe_float(value: Any) -> float | None:
 def finite_values(values: Any) -> list[float]:
     out = [safe_float(value) for value in values]
     return [value for value in out if value is not None and math.isfinite(value)]
+
+
+def has_complete_resource_metrics(row: dict[str, Any]) -> bool:
+    return all(safe_float(row.get(metric)) is not None for metric in RESOURCE_PLOT_METRICS)
 
 
 def sum_optional_counters(*values: Any) -> float | None:

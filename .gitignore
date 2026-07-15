@@ -1,5 +1,6 @@
 .agents/
-artifacts/
+artifacts/*.json
+artifacts/*.jsonl
 __pycache__/
 *.pyc
 *.pyo
