@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from .config import load_config
 from .data.discovery import summarize_datasets
 from .data.loader import load_datasets
 from .episodes import build_episodes
@@ -34,10 +35,12 @@ def main() -> None:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("inspect")
-    p.add_argument("--datasets", required=True)
+    p.add_argument("--config", help="Path to JSON config file (e.g. configs/default.json)")
+    p.add_argument("--datasets")
 
     p = sub.add_parser("build")
-    p.add_argument("--datasets", required=True)
+    p.add_argument("--config", help="Path to JSON config file (e.g. configs/default.json)")
+    p.add_argument("--datasets")
     p.add_argument("--out", required=True)
     p.add_argument("--limit-attempts", type=int)
     p.add_argument("--include-dataset", action="append")
@@ -67,6 +70,23 @@ def main() -> None:
     p.add_argument("--min-episode-steps", type=int, default=2)
 
     args = parser.parse_args()
+
+    # Resolve --datasets and --include-dataset from --config when not
+    # provided on the command line.
+    if args.config:
+        cfg = load_config(args.config)
+        if args.cmd in ("inspect", "build"):
+            if args.datasets is None:
+                args.datasets = cfg.get("dataset_root")
+            if args.cmd == "build" and args.include_dataset is None:
+                included = cfg.get("include_datasets")
+                if isinstance(included, list) and included:
+                    args.include_dataset = list(included)
+
+    # Validate that --datasets is now present for commands that need it.
+    if args.cmd in ("inspect", "build") and not args.datasets:
+        parser.error(f"the following arguments are required: --datasets (or provide --config)")
+
     if args.cmd == "inspect":
         payload = summarize_datasets(Path(args.datasets))
         print_json(payload)

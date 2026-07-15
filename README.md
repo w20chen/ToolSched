@@ -15,9 +15,31 @@ The loader expects benchmark attempts that contain files such as:
 - `results.json`
 - `run_manifest.json`
 
-It is designed for the datasets under `C:\Users\29068\Desktop\agent_datasets`,
-including SWE-ReBench, SWE-Bench Verified, Terminal-Bench, BFCL multi-turn,
-BFCL memory, BFCL web-search, and DeepResearchBench.
+It is designed for the datasets under `/data/share/datasets/agent_datasets`,
+including SWE-ReBench (p1/p2), SWE-Bench Verified, Terminal-Bench (p1/p2/p3),
+BFCL multi-turn (base, long-context), BFCL memory, BFCL web-search,
+DeepResearchBench, and ScienceAgentBench Verified.
+
+### Resource Sampling Intervals
+
+Datasets have different resource-telemetry sampling rates. The framework
+estimates the median interval by reading the `epoch` / `timestamp` fields from
+the `samples` array in `resources.json` and computing the gap between
+consecutive samples.
+
+| Interval | Datasets |
+|----------|----------|
+| ~0.50 s | swe-bench-verified, swe-rebench-p1, terminal-bench-p2 |
+| ~0.54 s | bfcl-memory, bfcl-multi-turn-\*, bfcl-web-search, deep-research-bench |
+| ~2.00 s | science-agent-bench-verified, swe-rebench-p2, terminal-bench-p1, terminal-bench-p3 |
+
+The core pipeline (`toolsched.data.loader`) aggregates all samples
+unconditionally and is unaffected by sampling-rate differences. The
+`scripts/plot_operation_resources.py` script auto-detects each dataset's
+interval and scales its baseline / counter-gap thresholds to 3× the observed
+interval (minimum 2.0 s).
+
+Run `toolsched inspect` to see per-dataset interval estimates.
 
 ## Prediction Questions
 
@@ -37,39 +59,46 @@ The first version includes these tasks:
 
 ## Quick Start
 
-```powershell
-python -m toolsched.cli inspect --datasets C:\Users\29068\Desktop\agent_datasets
-python -m toolsched.cli build --datasets C:\Users\29068\Desktop\agent_datasets --out artifacts\samples.jsonl
-python -m toolsched.cli profile --samples artifacts\samples.jsonl --out artifacts\profiles.json
-python -m toolsched.cli evaluate-supervised --samples artifacts\samples.jsonl --out artifacts\supervised.json
-python -m toolsched.cli evaluate --samples artifacts\samples.jsonl --out artifacts\metrics.json
-python -m toolsched.cli calibrate --samples artifacts\samples.jsonl --out artifacts\calibration.json
+```bash
+python -m toolsched.cli inspect --datasets /data/share/datasets/agent_datasets
+python -m toolsched.cli build --datasets /data/share/datasets/agent_datasets --out artifacts/samples.jsonl
+python -m toolsched.cli profile --samples artifacts/samples.jsonl --out artifacts/profiles.json
+python -m toolsched.cli evaluate-supervised --samples artifacts/samples.jsonl --out artifacts/supervised.json
+python -m toolsched.cli evaluate --samples artifacts/samples.jsonl --out artifacts/metrics.json
+python -m toolsched.cli calibrate --samples artifacts/samples.jsonl --out artifacts/calibration.json
 ```
 
 For a smaller first pass:
 
-```powershell
-python -m toolsched.cli build --datasets C:\Users\29068\Desktop\agent_datasets --out artifacts\samples.small.jsonl --limit-attempts 200
-python -m toolsched.cli evaluate --samples artifacts\samples.small.jsonl
+```bash
+python -m toolsched.cli build --datasets /data/share/datasets/agent_datasets --out artifacts/samples.small.jsonl --limit-attempts 200
+python -m toolsched.cli evaluate --samples artifacts/samples.small.jsonl
 ```
 
 To focus on real tool latency rather than BFCL in-memory calls, include
-SWE/OpenClaw, Terminal-Bench, and DeepResearchBench:
+SWE, Terminal-Bench, DeepResearchBench, and ScienceAgentBench:
 
-```powershell
-python -m toolsched.cli build --datasets C:\Users\29068\Desktop\agent_datasets --include-dataset deep-research-bench --include-dataset swe-rebench --include-dataset swe-bench-verified --include-dataset terminal-bench --min-duration-ms 1 --out artifacts\agent_non_bfcl.samples.jsonl
-python -m toolsched.cli profile --samples artifacts\agent_non_bfcl.samples.jsonl --out artifacts\agent_non_bfcl.profiles.json
-python -m toolsched.cli evaluate-supervised --samples artifacts\agent_non_bfcl.samples.jsonl --out artifacts\agent_non_bfcl.supervised.json
-python -m toolsched.cli evaluate --samples artifacts\agent_non_bfcl.samples.jsonl --out artifacts\agent_non_bfcl.metrics.json
-python -m toolsched.cli evaluate-remaining --samples artifacts\agent_non_bfcl.samples.jsonl --out artifacts\agent_non_bfcl.remaining.v3.json --min-episode-steps 3
+```bash
+python -m toolsched.cli build --datasets /data/share/datasets/agent_datasets \
+  --include-dataset deep-research-bench \
+  --include-dataset swe-rebench-p1 --include-dataset swe-rebench-p2 \
+  --include-dataset swe-bench-verified \
+  --include-dataset terminal-bench-p1 --include-dataset terminal-bench-p2 --include-dataset terminal-bench-p3 \
+  --include-dataset science-agent-bench-verified \
+  --min-duration-ms 1 \
+  --out artifacts/agent_non_bfcl.samples.jsonl
+python -m toolsched.cli profile --samples artifacts/agent_non_bfcl.samples.jsonl --out artifacts/agent_non_bfcl.profiles.json
+python -m toolsched.cli evaluate-supervised --samples artifacts/agent_non_bfcl.samples.jsonl --out artifacts/agent_non_bfcl.supervised.json
+python -m toolsched.cli evaluate --samples artifacts/agent_non_bfcl.samples.jsonl --out artifacts/agent_non_bfcl.metrics.json
+python -m toolsched.cli evaluate-remaining --samples artifacts/agent_non_bfcl.samples.jsonl --out artifacts/agent_non_bfcl.remaining.v3.json --min-episode-steps 3
 ```
 
 DeepResearchBench can also be evaluated separately:
 
-```powershell
-python -m toolsched.cli build --datasets C:\Users\29068\Desktop\agent_datasets --include-dataset deep-research-bench --min-duration-ms 1 --out artifacts\deep_research.samples.jsonl
-python -m toolsched.cli profile --samples artifacts\deep_research.samples.jsonl --out artifacts\deep_research.profiles.json
-python -m toolsched.cli evaluate-supervised --samples artifacts\deep_research.samples.jsonl --out artifacts\deep_research.supervised.json
+```bash
+python -m toolsched.cli build --datasets /data/share/datasets/agent_datasets --include-dataset deep-research-bench --min-duration-ms 1 --out artifacts/deep_research.samples.jsonl
+python -m toolsched.cli profile --samples artifacts/deep_research.samples.jsonl --out artifacts/deep_research.profiles.json
+python -m toolsched.cli evaluate-supervised --samples artifacts/deep_research.samples.jsonl --out artifacts/deep_research.supervised.json
 ```
 
 ## Model Boundary

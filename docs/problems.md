@@ -81,11 +81,30 @@ including:
 
 | Dataset | Description |
 |---------|-------------|
-| **SWE-ReBench** | Real-world software engineering agent traces |
+| **SWE-ReBench (p1/p2)** | Real-world software engineering agent traces (two partitions) |
 | **SWE-Bench Verified** | Curated SWE-bench traces with verified solutions |
-| **Terminal-Bench** | Terminal-based agent interaction traces |
-| **BFCL (multi-turn, memory, web-search)** | Berkeley Function Calling Leaderboard variants |
+| **Terminal-Bench (p1/p2/p3)** | Terminal-based agent interaction traces (three partitions) |
+| **BFCL Multi-Turn Base** | Berkeley Function Calling Leaderboard — multi-turn base |
+| **BFCL Multi-Turn Long Context** | BFCL multi-turn with long-context scenarios |
+| **BFCL Memory** | BFCL memory-augmented function calling traces |
+| **BFCL Web Search** | BFCL web-search-augmented function calling traces |
 | **DeepResearchBench** | Deep research agent traces |
+| **ScienceAgentBench Verified** | Science agent benchmark traces with verified solutions |
+
+Resource sampling intervals vary across datasets.  Use `toolsched inspect` to
+see per-dataset estimates:
+
+| Sampling Rate | Datasets |
+|---------------|----------|
+| ~0.50 s | swe-bench-verified, swe-rebench-p1, terminal-bench-p2 |
+| ~0.54 s | bfcl-memory, bfcl-multi-turn-*, bfcl-web-search, deep-research-bench |
+| ~2.00 s | science-agent-bench-verified, swe-rebench-p2, terminal-bench-p1, terminal-bench-p3 |
+
+The core pipeline (`_load_resources`) is unaffected by sampling-rate
+differences because it aggregates *all* samples unconditionally.  The
+`plot_operation_resources.py` script auto-detects the sampling interval and
+scales its baseline / counter-gap thresholds to 3× the observed interval
+(minimum 2.0 s).
 
 ---
 

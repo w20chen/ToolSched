@@ -1,5 +1,5 @@
 $ErrorActionPreference = "Stop"
-$datasets = "C:\Users\29068\Desktop\agent_datasets"
+$datasets = "/data/share/datasets/agent_datasets"
 python -m toolsched.cli inspect --datasets $datasets
 python -m toolsched.cli build --datasets $datasets --out artifacts\samples.small.jsonl --limit-attempts 50
 python -m toolsched.cli evaluate --samples artifacts\samples.small.jsonl --out artifacts\metrics.small.json

@@ -1,5 +1,19 @@
 {
-  "dataset_root": "C:\\Users\\29068\\Desktop\\agent_datasets",
+  "dataset_root": "/data/share/datasets/agent_datasets",
+  "include_datasets": [
+    "bfcl-memory",
+    "bfcl-multi-turn-base",
+    "bfcl-multi-turn-long-context",
+    "bfcl-web-search",
+    "deep-research-bench",
+    "science-agent-bench-verified",
+    "swe-bench-verified",
+    "swe-rebench-p1",
+    "swe-rebench-p2",
+    "terminal-bench-p1",
+    "terminal-bench-p2",
+    "terminal-bench-p3"
+  ],
   "history_k": 5,
   "test_ratio": 0.2,
   "prediction_tasks": [

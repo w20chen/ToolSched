@@ -24,6 +24,9 @@ from toolsched.features.command import extract_command_features, normalize_opera
 MEMORY_BASELINE_MAX_AGE_S = 2.0
 CPU_BASELINE_MAX_AGE_S = 2.0
 COUNTER_INTERPOLATION_MAX_GAP_S = 2.0
+# Minimum safe multiplier: thresholds should be at least this many times the
+# observed sampling interval to avoid missing valid baseline/counter samples.
+_MIN_SAMPLING_MULTIPLIER = 3.0
 DEFAULT_MIN_OPERATION_P50_DURATION_MS = 500.0
 RESOURCE_PLOT_METRICS = (
     "cpu_percent_delta_mean",
@@ -70,7 +73,7 @@ def main() -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    rows = collect_rows(root, args.max_attempts)
+    rows, dataset_intervals = collect_rows(root, args.max_attempts)
     write_rows(out_dir / "operation_resource_rows.csv", rows)
     summary_rows = summarize_rows(rows, args.min_operation_p50_duration_ms)
     write_summary(out_dir / "operation_resource_summary.csv", summary_rows)
@@ -85,6 +88,10 @@ def main() -> None:
         "rows": len(rows),
         "operations": len({row["operation"] for row in rows}),
         "boxplot_min_operation_p50_duration_ms": args.min_operation_p50_duration_ms,
+        "dataset_sampling_intervals_s": {
+            ds: round(iv, 3) for ds, iv in sorted(dataset_intervals.items()) if iv > 0
+        },
+        "threshold_multiplier": _MIN_SAMPLING_MULTIPLIER,
         "out_dir": str(out_dir),
         "boxplot": str(out_dir / "operation_resource_boxplots.png"),
         "rows_csv": str(out_dir / "operation_resource_rows.csv"),
@@ -92,9 +99,10 @@ def main() -> None:
     }, indent=2))
 
 
-def collect_rows(root: Path, max_attempts: int | None) -> list[dict[str, Any]]:
+def collect_rows(root: Path, max_attempts: int | None) -> tuple[list[dict[str, Any]], dict[str, float]]:
     rows: list[dict[str, Any]] = []
     attempts_seen = 0
+    dataset_intervals: dict[str, float] = {}  # dataset -> median sampling interval
     for dirpath, dirnames, filenames in os.walk(root):
         if "tool_calls.json" not in filenames:
             continue
@@ -109,16 +117,25 @@ def collect_rows(root: Path, max_attempts: int | None) -> list[dict[str, Any]]:
             continue
         resources = load_resource_samples(resources_path)
         dataset = dataset_name(root, attempt_dir)
+
+        # Compute effective thresholds once per dataset.
+        if dataset not in dataset_intervals:
+            interval = sampling_interval(resources)
+            dataset_intervals[dataset] = interval if interval else 0.0
+        interval = dataset_intervals[dataset]
+        eff_max_age = max(CPU_BASELINE_MAX_AGE_S, interval * _MIN_SAMPLING_MULTIPLIER)
+        eff_max_gap = max(COUNTER_INTERPOLATION_MAX_GAP_S, interval * _MIN_SAMPLING_MULTIPLIER)
+
         attempts_seen += 1
         for idx, call in enumerate(calls):
             if not isinstance(call, dict):
                 continue
-            row = row_for_call(dataset, attempt_dir, idx, call, resources)
+            row = row_for_call(dataset, attempt_dir, idx, call, resources, eff_max_age, eff_max_gap)
             if row is not None:
                 rows.append(row)
         if max_attempts is not None and attempts_seen >= max_attempts:
             break
-    return rows
+    return rows, dataset_intervals
 
 
 def row_for_call(
@@ -127,6 +144,8 @@ def row_for_call(
     idx: int,
     call: dict[str, Any],
     resources: list[ResourceSample],
+    baseline_max_age_s: float = CPU_BASELINE_MAX_AGE_S,
+    counter_max_gap_s: float = COUNTER_INTERPOLATION_MAX_GAP_S,
 ) -> dict[str, Any] | None:
     tool = str(call.get("tool") or "unknown")
     payload = dict(call.get("input") or {})
@@ -142,7 +161,9 @@ def row_for_call(
     if duration_ms is None and start is not None and end is not None:
         duration_ms = max(0.0, (end - start) * 1000.0)
 
-    stats = resource_stats(resources, start, end)
+    stats = resource_stats(resources, start, end,
+                           baseline_max_age_s=baseline_max_age_s,
+                           counter_max_gap_s=counter_max_gap_s)
     network_io_bytes_per_s = bytes_per_second(stats["network_io_bytes"], duration_ms)
     disk_io_bytes_per_s = bytes_per_second(stats["disk_io_bytes"], duration_ms)
     return {
@@ -209,7 +230,9 @@ def load_resource_samples(path: Path) -> list[ResourceSample]:
     return out
 
 
-def resource_stats(resources: list[ResourceSample], start: float | None, end: float | None) -> dict[str, Any]:
+def resource_stats(resources: list[ResourceSample], start: float | None, end: float | None,
+                  baseline_max_age_s: float = CPU_BASELINE_MAX_AGE_S,
+                  counter_max_gap_s: float = COUNTER_INTERPOLATION_MAX_GAP_S) -> dict[str, Any]:
     empty = {
         "cpu_percent_mean": None,
         "cpu_percent_baseline": None,
@@ -234,12 +257,12 @@ def resource_stats(resources: list[ResourceSample], start: float | None, end: fl
     cpu_values = [row.cpu_percent for row in in_window if row.cpu_percent is not None]
     mem_values = [row.mem_bytes for row in in_window if row.mem_bytes is not None]
     cpu_mean = mean(cpu_values)
-    cpu_baseline = value_at_or_before(resources, start, "cpu_percent", CPU_BASELINE_MAX_AGE_S)
+    cpu_baseline = value_at_or_before(resources, start, "cpu_percent", baseline_max_age_s)
     mem_mean = mean(mem_values)
     mem_max = max(mem_values) if mem_values else None
-    mem_baseline = value_at_or_before(resources, start, "mem_bytes", MEMORY_BASELINE_MAX_AGE_S)
-    disk_delta = counter_delta(resources, start, end, "disk_bytes")
-    net_delta = counter_delta(resources, start, end, "net_bytes")
+    mem_baseline = value_at_or_before(resources, start, "mem_bytes", max(baseline_max_age_s, MEMORY_BASELINE_MAX_AGE_S))
+    disk_delta = counter_delta(resources, start, end, "disk_bytes", counter_max_gap_s)
+    net_delta = counter_delta(resources, start, end, "net_bytes", counter_max_gap_s)
     return {
         "cpu_percent_mean": cpu_mean,
         "cpu_percent_baseline": cpu_baseline,
@@ -282,15 +305,17 @@ def bytes_per_second(delta_bytes: float | None, duration_ms: float | None) -> fl
     return delta_bytes / (duration_ms / 1000.0)
 
 
-def counter_delta(resources: list[ResourceSample], start: float, end: float, attr: str) -> float | None:
-    before = interpolated_counter(resources, start, attr)
-    after = interpolated_counter(resources, end, attr)
+def counter_delta(resources: list[ResourceSample], start: float, end: float, attr: str,
+                  max_gap_s: float = COUNTER_INTERPOLATION_MAX_GAP_S) -> float | None:
+    before = interpolated_counter(resources, start, attr, max_gap_s)
+    after = interpolated_counter(resources, end, attr, max_gap_s)
     if before is None or after is None or after < before:
         return None
     return after - before
 
 
-def interpolated_counter(resources: list[ResourceSample], t: float, attr: str) -> float | None:
+def interpolated_counter(resources: list[ResourceSample], t: float, attr: str,
+                         max_gap_s: float = COUNTER_INTERPOLATION_MAX_GAP_S) -> float | None:
     previous = None
     following = None
     for row in resources:
@@ -308,7 +333,7 @@ def interpolated_counter(resources: list[ResourceSample], t: float, attr: str) -
     next_value = getattr(following, attr)
     if following.epoch == previous.epoch:
         return prev_value
-    if following.epoch - previous.epoch > COUNTER_INTERPOLATION_MAX_GAP_S:
+    if following.epoch - previous.epoch > max_gap_s:
         return None
     if next_value < prev_value:
         return None
@@ -540,6 +565,17 @@ def dataset_name(root: Path, attempt_dir: Path) -> str:
         return attempt_dir.relative_to(root).parts[0]
     except ValueError:
         return "unknown"
+
+
+def sampling_interval(resources: list[ResourceSample]) -> float | None:
+    """Estimate the median sampling interval from a list of ResourceSample."""
+    if len(resources) < 2:
+        return None
+    epochs = [r.epoch for r in resources if r.epoch is not None]
+    if len(epochs) < 2:
+        return None
+    gaps = sorted(epochs[i + 1] - epochs[i] for i in range(len(epochs) - 1))
+    return gaps[len(gaps) // 2]
 
 
 def parse_epoch(value: Any) -> float | None:
