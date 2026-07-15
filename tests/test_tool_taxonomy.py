@@ -1,6 +1,6 @@
 import unittest
 
-from toolsched.features.command import normalize_operation
+from toolsched.features.command import DIRECT_TOOL_OPERATION, normalize_operation
 from toolsched.features.exec_classifier import classify_exec_tool_name
 
 
@@ -35,6 +35,12 @@ class ToolTaxonomyTests(unittest.TestCase):
 
         self.assertEqual((list_op, list_family), ("directory_list", "file_navigation"))
         self.assertEqual((read_op, read_family), ("file_read", "file_io"))
+
+    def test_direct_tool_operation_catalog_matches_normalization(self) -> None:
+        for tool, expected_operation in DIRECT_TOOL_OPERATION.items():
+            with self.subTest(tool=tool):
+                operation, _ = normalize_operation(tool, {})
+                self.assertEqual(operation, expected_operation)
 
     def test_leading_cd_does_not_hide_the_executed_operation(self) -> None:
         script_op, _ = normalize_operation(

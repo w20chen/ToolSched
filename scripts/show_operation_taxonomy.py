@@ -9,8 +9,53 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from toolsched.features.command import EXEC_TOOL_OPERATION, TOOL_FAMILY_BY_OPERATION, normalize_operation
+from toolsched.features.command import (
+    DIRECT_TOOL_OPERATION,
+    EXEC_TOOL_OPERATION,
+    TOOL_FAMILY_BY_OPERATION,
+    normalize_operation,
+)
 from toolsched.features.exec_classifier import classify_exec_tool_name
+
+
+COMMAND_SENSITIVE_TOOLS_BY_OPERATION = {
+    "package_install": [
+        "exec-apt",
+        "exec-conda",
+        "exec-npm",
+        "exec-pip",
+        "exec-poetry",
+        "exec-python",
+        "exec-uv",
+    ],
+    "project_build": [
+        "exec-cargo",
+        "exec-docker",
+        "exec-gcc",
+        "exec-go",
+        "exec-gradle",
+        "exec-make",
+        "exec-mvn",
+        "exec-npm",
+        "exec-python",
+    ],
+    "shell_script": ["exec"],
+    "test_run": [
+        "exec-cargo",
+        "exec-go",
+        "exec-make",
+        "exec-mvn",
+        "exec-npm",
+        "exec-pytest",
+        "exec-python",
+    ],
+    "text_search_recursive": ["exec-grep"],
+    "text_search_simple": ["exec-grep"],
+    "version_control_diff": ["exec-git"],
+    "version_control_history": ["exec-git"],
+    "version_control_status": ["exec-git"],
+    "version_control_update": ["exec-git"],
+}
 
 
 def main() -> None:
@@ -57,16 +102,21 @@ def classify_call(tool: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def operation_catalog() -> list[dict[str, Any]]:
-    exec_fallbacks: dict[str, list[str]] = defaultdict(list)
+    tools_by_operation: dict[str, set[str]] = defaultdict(set)
+
+    for tool, operation in DIRECT_TOOL_OPERATION.items():
+        tools_by_operation[operation].add(tool)
     for category, operation in EXEC_TOOL_OPERATION.items():
-        exec_fallbacks[operation].append(f"exec-{category}")
+        tools_by_operation[operation].add(f"exec-{category}")
+    for operation, tools in COMMAND_SENSITIVE_TOOLS_BY_OPERATION.items():
+        tools_by_operation[operation].update(tools)
 
     rows = []
     for operation in sorted(TOOL_FAMILY_BY_OPERATION):
         rows.append({
             "operation": operation,
             "tool_family": TOOL_FAMILY_BY_OPERATION[operation],
-            "exec_tool_fallbacks": sorted(exec_fallbacks.get(operation, [])),
+            "tools": sorted(tools_by_operation.get(operation, [])),
         })
     return rows
 
@@ -83,11 +133,13 @@ def emit(payload: dict[str, Any], fmt: str) -> None:
 
 
 def print_catalog(rows: list[dict[str, Any]]) -> None:
-    print("operation | tool_family | exec_tool_fallbacks")
+    print("operation | tool_family | tools")
     print("--- | --- | ---")
     for row in rows:
-        fallbacks = ", ".join(row["exec_tool_fallbacks"])
-        print(f"{row['operation']} | {row['tool_family']} | {fallbacks}")
+        tools = ", ".join(row["tools"])
+        print(f"{row['operation']} | {row['tool_family']} | {tools}")
+    print()
+    print("Note: exec tools can appear under multiple operations when command text refines the load class.")
 
 
 def print_classification(row: dict[str, Any]) -> None:

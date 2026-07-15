@@ -49,6 +49,10 @@ To inspect the operation taxonomy without reading any datasets:
 python scripts/show_operation_taxonomy.py
 ```
 
+The table groups known concrete tools by `operation` and shows each operation's
+`tool_family`. An `exec-*` tool may appear under multiple operations when command
+text refines the load class.
+
 To classify a single raw `exec` command:
 
 ```bash

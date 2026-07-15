@@ -39,6 +39,15 @@ TOOL_FAMILY_BY_OPERATION = {
     "unknown_command": "data_analysis_scripting",
 }
 
+DIRECT_TOOL_OPERATION = {
+    "read_file": "file_read",
+    "write_file": "file_write",
+    "edit_file": "file_edit",
+    "list_dir": "directory_list",
+    "web_search": "web_search",
+    "web_fetch": "web_fetch",
+}
+
 EXEC_TOOL_OPERATION = {
     "pytest": "test_run",
     "python": "data_script",
@@ -179,18 +188,9 @@ def normalize_operation(tool: str, payload: dict[str, Any]) -> tuple[str, str]:
     tool_l = tool.lower()
     text = command_text(tool, payload).lower()
 
-    if tool_l == "read_file":
-        return _pair("file_read")
-    if tool_l == "write_file":
-        return _pair("file_write")
-    if tool_l == "edit_file":
-        return _pair("file_edit")
-    if tool_l == "list_dir":
-        return _pair("directory_list")
-    if tool_l == "web_search":
-        return _pair("web_search")
-    if tool_l == "web_fetch":
-        return _pair("web_fetch")
+    direct_operation = DIRECT_TOOL_OPERATION.get(tool_l)
+    if direct_operation is not None:
+        return _pair(direct_operation)
     if _is_memory_read(tool_l):
         return _pair("memory_read")
     if _is_memory_write(tool_l):
