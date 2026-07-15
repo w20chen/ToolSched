@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from ..features.command import extract_command_features, normalize_operation
+from ..features.exec_classifier import classify_exec_tool_name
 from ..features.resource_class import infer_resource_class
 from ..io import read_json
 from ..schema import ToolSample
@@ -25,8 +26,8 @@ def load_attempt(attempt: AttemptPath, history_k: int = 5) -> list[ToolSample]:
     for idx, call in enumerate(calls):
         if not isinstance(call, dict):
             continue
-        tool = str(call.get("tool") or "unknown")
-        payload = dict(call.get("input") or {})
+        payload = call_payload(call)
+        tool = normalize_tool_name(call_tool_name(call), payload)
         preview = str(call.get("result_preview") or "")
         operation, family = normalize_operation(tool, payload)
         features = extract_command_features(tool, payload, preview)
@@ -41,7 +42,8 @@ def load_attempt(attempt: AttemptPath, history_k: int = 5) -> list[ToolSample]:
         )
         next_tool = None
         if idx + 1 < len(calls) and isinstance(calls[idx + 1], dict):
-            next_tool = str(calls[idx + 1].get("tool") or "unknown")
+            next_payload = call_payload(calls[idx + 1])
+            next_tool = normalize_tool_name(call_tool_name(calls[idx + 1]), next_payload)
         sample_resources = dict(attempt_resources)
         prelaunch = call.get("prelaunch_resources")
         if isinstance(prelaunch, dict):
@@ -71,6 +73,36 @@ def load_attempt(attempt: AttemptPath, history_k: int = 5) -> list[ToolSample]:
         samples.append(sample)
         tools_seen.append(tool)
     return samples
+
+
+def normalize_tool_name(tool: str, payload: dict[str, Any]) -> str:
+    """Normalize raw exec calls while leaving native structured tools intact."""
+    return classify_exec_tool_name(tool, payload)
+
+
+def call_tool_name(call: dict[str, Any]) -> str:
+    """Return the tool name from either normalized or raw trace schemas."""
+    return str(call.get("tool") or call.get("tool_name") or "unknown")
+
+
+def call_payload(call: dict[str, Any]) -> dict[str, Any]:
+    """Return tool arguments from either ``input`` or raw ``tool_args`` fields."""
+    payload = call.get("input")
+    if isinstance(payload, dict):
+        return dict(payload)
+    tool_args = call.get("tool_args")
+    if isinstance(tool_args, dict):
+        return dict(tool_args)
+    if isinstance(tool_args, str):
+        import json
+
+        try:
+            parsed = json.loads(tool_args)
+        except (TypeError, ValueError):
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+    return {}
 
 
 def load_datasets(

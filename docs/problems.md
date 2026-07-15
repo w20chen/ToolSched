@@ -337,14 +337,14 @@ share the same resource class.
 | Operation | Resource Class |
 |-----------|---------------|
 | `data_script` | `cpu` |
-| `test_run`, `project_build` | `cpu_memory_mixed` |
+| `test_run`, `project_build`, `container_operation` | `cpu_memory_mixed` |
 | `package_install`, `version_control_update`, `download` | `network_disk_io` |
 | `text_search_simple` | `search` |
 | `text_search_recursive` | `io_search` |
-| `text_transform` | `cpu_io_mixed` |
-| `directory_list`, `file_discovery`, `version_control_status` | `metadata_io` |
-| `file_read`, `file_write`, `file_edit`, `version_control_diff`, `version_control_history` | `file_io` |
-| `memory_read`, `memory_write`, `working_directory` | `light_control` |
+| `text_transform`, `archive_operation`, `database_query` | `cpu_io_mixed` |
+| `directory_list`, `file_discovery`, `version_control_status`, `system_operation` | `metadata_io` |
+| `file_read`, `file_write`, `file_edit`, `file_mutation`, `version_control_diff`, `version_control_history` | `file_io` |
+| `memory_read`, `memory_write`, `working_directory`, `shell_control` | `light_control` |
 | `web_search`, `web_fetch` | `network` |
 | `shell_script`, `unknown_command` | `unknown` |
 

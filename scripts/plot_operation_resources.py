@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from toolsched.features.command import extract_command_features, normalize_operation
+from toolsched.features.exec_classifier import classify_exec_tool_name
 
 
 MEMORY_BASELINE_MAX_AGE_S = 2.0
@@ -150,8 +151,8 @@ def row_for_call(
     baseline_max_age_s: float = CPU_BASELINE_MAX_AGE_S,
     counter_max_gap_s: float = COUNTER_INTERPOLATION_MAX_GAP_S,
 ) -> dict[str, Any] | None:
-    tool = str(call.get("tool") or "unknown")
-    payload = dict(call.get("input") or {})
+    payload = call_payload(call)
+    tool = classify_exec_tool_name(call_tool_name(call), payload)
     preview = str(call.get("result_preview") or "")
     operation, family = normalize_operation(tool, payload)
     features = extract_command_features(tool, payload, preview)
@@ -231,6 +232,27 @@ def load_resource_samples(path: Path) -> list[ResourceSample]:
         ))
     out.sort(key=lambda row: row.epoch)
     return out
+
+
+def call_tool_name(call: dict[str, Any]) -> str:
+    return str(call.get("tool") or call.get("tool_name") or "unknown")
+
+
+def call_payload(call: dict[str, Any]) -> dict[str, Any]:
+    payload = call.get("input")
+    if isinstance(payload, dict):
+        return dict(payload)
+    tool_args = call.get("tool_args")
+    if isinstance(tool_args, dict):
+        return dict(tool_args)
+    if isinstance(tool_args, str):
+        try:
+            parsed = json.loads(tool_args)
+        except (TypeError, ValueError):
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+    return {}
 
 
 def resource_stats(resources: list[ResourceSample], start: float | None, end: float | None,

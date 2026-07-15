@@ -21,11 +21,17 @@ RESOURCE_CLASS_BY_OPERATION = {
     "file_read": "file_io",
     "file_write": "file_io",
     "file_edit": "file_io",
+    "file_mutation": "file_io",
+    "archive_operation": "cpu_io_mixed",
     "memory_read": "light_control",
     "memory_write": "light_control",
     "web_search": "network",
     "web_fetch": "network",
     "download": "network_disk_io",
+    "container_operation": "cpu_memory_mixed",
+    "database_query": "cpu_io_mixed",
+    "system_operation": "metadata_io",
+    "shell_control": "light_control",
     "unknown_command": "unknown",
 }
 

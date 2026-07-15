@@ -41,6 +41,20 @@ interval (minimum 2.0 s).
 
 Run `toolsched inspect` to see per-dataset interval estimates.
 
+### Inspecting Tool Classification
+
+To inspect the operation taxonomy without reading any datasets:
+
+```bash
+python scripts/show_operation_taxonomy.py
+```
+
+To classify a single raw `exec` command:
+
+```bash
+python scripts/show_operation_taxonomy.py --command "find src -type f | xargs grep TODO"
+```
+
 ## Prediction Questions
 
 The first version includes these tasks:
